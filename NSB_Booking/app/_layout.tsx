@@ -10,6 +10,11 @@ export default function RootLayout() {
       {/* Sign in screen */}
       <Stack.Screen name="SignIn" />
 
+      {/* Dashboards */}
+      <Stack.Screen name="AdminDashboard" />
+      <Stack.Screen name="ManagerDashboard" />
+      <Stack.Screen name="UserDashboard" />
+
       {/* Your tab navigation group */}
       <Stack.Screen name="(tabs)" />
     </Stack>

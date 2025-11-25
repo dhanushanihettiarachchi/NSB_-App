@@ -26,7 +26,9 @@ router.post('/login', async (req, res) => {
     const user = result.recordset[0];
 
     if (!user.password_hash) {
-      return res.status(400).json({ error: 'User has not set password yet' });
+      return res
+        .status(400)
+        .json({ error: 'User has not set password yet' });
     }
 
     const passwordMatch = await bcrypt.compare(password, user.password_hash);
@@ -35,23 +37,33 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Incorrect password' });
     }
 
-    res.json({
+    // Make sure role is a number (1, 2, 3)
+    const roleId = Number(user.role);
+
+    // Optional: if you EVER want to block unknown roles, you can uncomment this
+    // if (![1, 2, 3].includes(roleId)) {
+    //   return res.status(403).json({ error: 'Unauthorized role' });
+    // }
+
+    // Clean, consistent response for frontend
+    return res.json({
+      success: true,
       message: 'Login successful',
       user: {
         epf: user.EPF_No,
-        name: user.full_name,
-        role: user.role,
+        fullName: user.full_name,
+        email: user.email,
+        phone: user.phone,
+        roleId: user.role_id,
         grade: user.grade,
+        registrationStatus: user.registration_status,
       },
     });
   } catch (err) {
     console.error('Login Error:', err);
-    res.status(500).json({ error: 'Server error' });
+    return res.status(500).json({ error: 'Server error' });
   }
 });
-
-module.exports = router;
-
 
 // SIGN UP API (full flow: check EPF + name, update email/phone, set password)
 router.post('/signup', async (req, res) => {
@@ -69,15 +81,17 @@ router.post('/signup', async (req, res) => {
       .request()
       .input('epf', epf)
       .input('fullName', fullName)
-      .query('SELECT * FROM Users WHERE EPF_No = @epf AND full_name = @fullName');
+      .query(
+        'SELECT * FROM Users WHERE EPF_No = @epf AND full_name = @fullName'
+      );
 
     if (findResult.recordset.length === 0) {
       return res.status(404).json({
-        error: 'No matching NSB employee found for this name and employee ID.',
+        error:
+          'No matching NSB employee found for this name and employee ID.',
       });
     }
 
-    const bcrypt = require('bcryptjs');
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // 2) Update email, phone, password, status
@@ -98,10 +112,13 @@ router.post('/signup', async (req, res) => {
       `);
 
     return res.json({
+      success: true,
       message: 'Account created successfully. You can now sign in.',
     });
   } catch (err) {
     console.error('Signup error:', err);
-    res.status(500).json({ error: 'Server error' });
+    return res.status(500).json({ error: 'Server error' });
   }
 });
+
+module.exports = router;

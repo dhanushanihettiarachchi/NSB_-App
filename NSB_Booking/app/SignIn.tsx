@@ -11,7 +11,7 @@ import {
 import { router } from 'expo-router';
 import { globalStyles, NSB_COLORS } from '@/styles/global';
 
-const API_URL = 'http://localhost:3001';
+const API_URL = 'http://localhost:3001'; // Change if needed for device/emulator
 
 export default function SignInScreen() {
   const [epf, setEpf] = useState('');
@@ -34,15 +34,39 @@ export default function SignInScreen() {
       });
 
       const data = await response.json();
+      console.log('LOGIN RESPONSE >>>', response.status, data);
 
       if (!response.ok) {
-        setError(data.error || 'Login failed');
+        setError(data.error || data.message || 'Login failed');
         setLoading(false);
         return;
       }
 
+      // Get role from the user object
+      const userRoleRaw = data.user?.roleId ?? data.roleId ?? data.user?.role;
+      const userRole = Number(userRoleRaw);
+
+      if (!userRole || Number.isNaN(userRole)) {
+        setError('User role not found');
+        setLoading(false);
+        return;
+      }
+
+      // Navigate based on role
+      if (userRole === 1) {
+        // SuperAdmin
+        router.replace('/AdminDashboard');
+      } else if (userRole === 2) {
+        // BranchManager
+        router.replace('/ManagerDashboard');
+      } else if (userRole === 3) {
+        // Normal User
+        router.replace('/UserDashboard');
+      } else {
+        setError('Unauthorized role');
+      }
+
       setLoading(false);
-      router.replace('/(tabs)');
     } catch (err) {
       console.error('Login error:', err);
       setError('Cannot connect to server');
@@ -56,7 +80,6 @@ export default function SignInScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={globalStyles.screenContainer}>
-
         {/* Header Centered */}
         <View style={styles.headerCenter}>
           <Text style={styles.heading}>Sign In to Continue</Text>
@@ -73,7 +96,9 @@ export default function SignInScreen() {
             onChangeText={setEpf}
           />
 
-          <Text style={[globalStyles.label, { marginTop: 16 }]}>Password</Text>
+          <Text style={[globalStyles.label, { marginTop: 16 }]}>
+            Password
+          </Text>
           <TextInput
             style={globalStyles.input}
             placeholder="Type your password here"
