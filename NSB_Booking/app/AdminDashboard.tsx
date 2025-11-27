@@ -8,12 +8,21 @@ export default function ManagerDashboard() {
     <View style={styles.container}>
       
       {/* Back Button */}
-     <TouchableOpacity style={styles.backButton} onPress={() => router.replace('/SignIn')}>
+      <TouchableOpacity style={styles.backButton} onPress={() => router.replace('/SignIn')}>
         <Ionicons name="chevron-back" size={28} color="#FFFFFF" />
-     </TouchableOpacity>
+      </TouchableOpacity>
 
+      <Text style={styles.title}>Super Admin Dashboard</Text>
 
-      <Text style={styles.text}>Super Admin Dashboard Screen</Text>
+      {/* USER ACCESS MANAGEMENT BUTTON */}
+      <TouchableOpacity 
+        style={styles.menuButton}
+        onPress={() => router.push('/UserAccess')}   // <-- Navigate to UserAccess.tsx screen
+      >
+        <Ionicons name="people" size={24} color="#00113D" style={{ marginRight: 8 }} />
+        <Text style={styles.menuText}>Manage User Access</Text>
+      </TouchableOpacity>
+
     </View>
   );
 }
@@ -23,17 +32,34 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#00113D',
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  text: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
+    paddingTop: 120,
   },
   backButton: {
     position: 'absolute',
     top: 50,
     left: 20,
     padding: 5,
+  },
+  title: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 40,
+  },
+  menuButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFB600',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    width: '80%',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  menuText: {
+    color: '#00113D',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
