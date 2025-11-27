@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from 'react'; 
 import {
   View,
   Text,
@@ -44,13 +44,24 @@ export default function SignInScreen() {
       });
 
       const data = await res.json();
+      console.log('Login response >>>', data); // just to check in console
 
       if (!res.ok) {
         setError(data.message || 'Invalid email or password.');
         return;
       }
 
-      router.replace('/UserDashboard');
+      // ⭐️ ROLE BASED NAVIGATION ⭐️
+      const role = data?.user?.role; // this comes from your backend
+
+      if (role === 'SuperAdmin') {
+        router.replace('/AdminDashboard');
+      } else if (role === 'BranchManager') {
+        router.replace('/ManagerDashboard');
+      } else {
+        // EndUser or anything else
+        router.replace('/UserDashboard');
+      }
     } catch (e) {
       console.error(e);
       setError('Cannot connect to server. Please try again.');
@@ -64,10 +75,8 @@ export default function SignInScreen() {
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-        <Text style={styles.title}>Sign In to continue</Text>
+      <Text style={styles.title}>Sign In to continue</Text>
       <View style={styles.card}>
-        
-
         {/* Email */}
         <Text style={styles.label}>email</Text>
         <TextInput
@@ -135,7 +144,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     alignItems: 'center',
     paddingHorizontal: '6%',
-    paddingTop: 60, 
+    paddingTop: 60,
   },
   card: {
     width: '100%',
