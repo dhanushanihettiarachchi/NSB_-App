@@ -10,10 +10,14 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { globalStyles, NSB_COLORS } from '@/styles/global';
+
+const NAVY = '#020038';
+const YELLOW = '#FFB600';
+const CREAM = '#FFEBD3';
+const BLACK_BOX = '#050515';
 
 export default function VerificationScreen() {
-  const [otp, setOtp] = useState(['', '', '', '']);
+  const [otp, setOtp] = useState<string[]>(['', '', '', '']);
 
   const handleChange = (val: string, index: number) => {
     if (val.length > 1) return;
@@ -23,87 +27,122 @@ export default function VerificationScreen() {
   };
 
   const handleVerify = () => {
-    // TODO API
+    // TODO: verify OTP with backend
     router.push('/NewPassword');
   };
 
   const handleResend = () => {
-    // TODO API
+    // TODO: resend OTP via backend
   };
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={globalStyles.screenContainer}>
-        <View style={globalStyles.headerRow}>
-          <TouchableOpacity onPress={() => router.back()} style={globalStyles.backButton}>
-            <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
-          </TouchableOpacity>
+      {/* Back arrow */}
+      <View style={styles.topRow}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
 
-          <View style={styles.headerCenter}>
-            <Text style={globalStyles.headingMain}>Verification</Text>
-          </View>
+      <Text style={styles.title}>Verification</Text>
+      <Text style={styles.subtitle}>Enter the verification code</Text>
+
+      <View style={styles.card}>
+        <Text style={styles.label}>Code</Text>
+
+        <View style={styles.otpContainer}>
+          {otp.map((digit, index) => (
+            <TextInput
+              key={index}
+              style={styles.otpBox}
+              keyboardType="number-pad"
+              maxLength={1}
+              value={digit}
+              onChangeText={(v) => handleChange(v, index)}
+            />
+          ))}
         </View>
 
-        <View style={globalStyles.formCard}>
-          <Text style={styles.infoText}>Enter verification code.</Text>
-
-          <View style={styles.otpContainer}>
-            {otp.map((digit, index) => (
-              <TextInput
-                key={index}
-                style={styles.otpBox}
-                keyboardType="number-pad"
-                maxLength={1}
-                value={digit}
-                onChangeText={(v) => handleChange(v, index)}
-              />
-            ))}
-          </View>
-
-          <Text style={styles.resendText}>
-            If you don’t receive code,&nbsp;
-            <Text style={styles.resendLink} onPress={handleResend}>
-              Resend.
-            </Text>
+        <Text style={styles.resendText}>
+          If you don’t receive the code,&nbsp;
+          <Text style={styles.resendLink} onPress={handleResend}>
+            Resend.
           </Text>
+        </Text>
 
-          <TouchableOpacity style={globalStyles.primaryButton} onPress={handleVerify}>
-            <Text style={globalStyles.primaryButtonText}>Verify</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.button} onPress={handleVerify}>
+          <Text style={styles.buttonText}>Verify</Text>
+        </TouchableOpacity>
+      </View>
 
-        <View style={globalStyles.footer}>
-          <Text style={globalStyles.footerText}>National Savings Bank</Text>
-          <Text style={globalStyles.footerText}>Welfare Division</Text>
-        </View>
+      <View style={styles.bottom}>
+        <Text style={styles.bottomText}>National Savings Bank</Text>
+        <Text style={styles.bottomText}>Welfare Division</Text>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerCenter: {
+  screen: {
     flex: 1,
+    backgroundColor: NAVY,
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    marginRight: 35,
+    paddingHorizontal: '6%',
+    paddingTop: 60,
   },
-  infoText: {
+  topRow: {
+    position: 'absolute',
+    top: 40,
+    left: 20,
+  },
+  backButton: {
+    padding: 4,
+  },
+  title: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  subtitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 20,
+    opacity: 0.8,
+  },
+  card: {
+    width: '100%',
+    backgroundColor: BLACK_BOX,
+    borderRadius: 18,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+  },
+  label: {
     color: '#FFFFFF',
     fontSize: 14,
-    marginBottom: 20,
+    marginBottom: 10,
   },
   otpContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    marginBottom: 18,
   },
   otpBox: {
     width: 50,
     height: 50,
-    backgroundColor: '#FFEFD5',
+    backgroundColor: CREAM,
     borderRadius: 10,
     textAlign: 'center',
     fontSize: 20,
@@ -113,10 +152,35 @@ const styles = StyleSheet.create({
   resendText: {
     color: '#FFFFFF',
     fontSize: 13,
-    marginBottom: 20,
+    marginBottom: 18,
   },
   resendLink: {
-    color: NSB_COLORS.gold,
+    color: YELLOW,
     fontWeight: '600',
+  },
+  button: {
+    backgroundColor: YELLOW,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  buttonText: {
+    color: NAVY,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  bottom: {
+    position: 'absolute',
+    bottom: 18,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  bottomText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    opacity: 0.8,
   },
 });

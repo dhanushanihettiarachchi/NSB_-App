@@ -1,123 +1,110 @@
 // routes/auth.js
 const express = require('express');
 const router = express.Router();
-const { getPool } = require('../db');
+const { sql, getPool } = require('../db');
 const bcrypt = require('bcryptjs');
 
-// LOGIN API
-router.post('/login', async (req, res) => {
+//
+// ---------- SIGN UP (EndUser) ----------
+//
+router.post('/signup', async (req, res) => {
   try {
-    const { epf, password } = req.body;
+    const { first_name, last_name, email, phone, password } = req.body;
 
-    if (!epf || !password) {
-      return res.status(400).json({ error: 'EPF and password required' });
+    if (!first_name || !last_name || !email || !password) {
+      return res.status(400).json({ message: 'Missing required fields' });
     }
 
     const pool = await getPool();
-    const result = await pool
-      .request()
-      .input('epf', epf)
-      .query('SELECT * FROM Users WHERE EPF_No = @epf');
+
+    // check email already exists
+    const existing = await pool.request()
+      .input('email', sql.NVarChar, email)
+      .query('SELECT user_id FROM Users WHERE email = @email');
+
+    if (existing.recordset.length > 0) {
+      return res.status(400).json({ message: 'Email already registered' });
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    const result = await pool.request()
+      .input('first_name', sql.NVarChar, first_name)
+      .input('last_name', sql.NVarChar, last_name)
+      .input('email', sql.NVarChar, email)
+      .input('phone', sql.NVarChar, phone || null)
+      .input('password', sql.NVarChar, hashed)
+      .query(`
+        INSERT INTO Users (first_name, last_name, email, phone, password, role, is_active)
+        OUTPUT INSERTED.user_id, INSERTED.role
+        VALUES (@first_name, @last_name, @email, @phone, @password, 'EndUser', 1)
+      `);
+
+    const user = result.recordset[0];
+
+    return res.status(201).json({
+      message: 'User registered successfully',
+      user: {
+        user_id: user.user_id,
+        email,
+        role: user.role,
+      },
+    });
+  } catch (err) {
+    console.error('Signup error >>>', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+//
+// ---------- LOGIN (email + password) ----------
+//
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password required' });
+    }
+
+    const pool = await getPool();
+
+    const result = await pool.request()
+      .input('email', sql.NVarChar, email)
+      .query(`
+        SELECT user_id, first_name, last_name, email, password, role, is_active
+        FROM Users
+        WHERE email = @email
+      `);
 
     if (result.recordset.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(400).json({ message: 'Invalid email or password' });
     }
 
     const user = result.recordset[0];
 
-    if (!user.password_hash) {
-      return res
-        .status(400)
-        .json({ error: 'User has not set password yet' });
+    if (!user.is_active) {
+      return res.status(403).json({ message: 'Your account is disabled.' });
     }
 
-    const passwordMatch = await bcrypt.compare(password, user.password_hash);
-
-    if (!passwordMatch) {
-      return res.status(401).json({ error: 'Incorrect password' });
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Invalid email or password' });
     }
 
-    // Make sure role is a number (1, 2, 3)
-    const roleId = Number(user.role);
-
-    // Optional: if you EVER want to block unknown roles, you can uncomment this
-    // if (![1, 2, 3].includes(roleId)) {
-    //   return res.status(403).json({ error: 'Unauthorized role' });
-    // }
-
-    // Clean, consistent response for frontend
     return res.json({
-      success: true,
       message: 'Login successful',
       user: {
-        epf: user.EPF_No,
-        fullName: user.full_name,
+        user_id: user.user_id,
+        first_name: user.first_name,
+        last_name: user.last_name,
         email: user.email,
-        phone: user.phone,
-        roleId: user.role_id,
-        grade: user.grade,
-        registrationStatus: user.registration_status,
+        role: user.role,
       },
     });
   } catch (err) {
-    console.error('Login Error:', err);
-    return res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// SIGN UP API (full flow: check EPF + name, update email/phone, set password)
-router.post('/signup', async (req, res) => {
-  try {
-    const { fullName, epf, email, phone, password } = req.body;
-
-    if (!fullName || !epf || !email || !phone || !password) {
-      return res.status(400).json({ error: 'All fields are required' });
-    }
-
-    const pool = await getPool();
-
-    // 1) Find user with matching EPF + full name
-    const findResult = await pool
-      .request()
-      .input('epf', epf)
-      .input('fullName', fullName)
-      .query(
-        'SELECT * FROM Users WHERE EPF_No = @epf AND full_name = @fullName'
-      );
-
-    if (findResult.recordset.length === 0) {
-      return res.status(404).json({
-        error:
-          'No matching NSB employee found for this name and employee ID.',
-      });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 2) Update email, phone, password, status
-    await pool
-      .request()
-      .input('epf', epf)
-      .input('email', email)
-      .input('phone', phone)
-      .input('password_hash', hashedPassword)
-      .query(`
-        UPDATE Users
-        SET email = @email,
-            phone = @phone,
-            password_hash = @password_hash,
-            registration_status = 'Active',
-            updated_at = SYSDATETIME()
-        WHERE EPF_No = @epf
-      `);
-
-    return res.json({
-      success: true,
-      message: 'Account created successfully. You can now sign in.',
-    });
-  } catch (err) {
-    console.error('Signup error:', err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('Login error >>>', err);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 

@@ -2,55 +2,68 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  StyleSheet,
   ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 const NAVY = '#020038';
 const YELLOW = '#FFB600';
 const CREAM = '#FFEBD3';
 const BLACK_BOX = '#050515';
 
-const API_URL = 'http://192.168.8.109:3001'; // <-- keep your IP here
+const API_URL = 'http://192.168.8.109:3001'; // same as SignIn
 
-export default function SignInScreen() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+export default function SignUpScreen() {
+  const [firstName, setFirstName] = useState('');
+  const [lastName,  setLastName]  = useState('');
+  const [email,     setEmail]     = useState('');
+  const [phone,     setPhone]     = useState('');
+  const [password,  setPassword]  = useState('');
+  const [confirm,   setConfirm]   = useState('');
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState('');
 
-  const handleSignIn = async () => {
+  const handleSignUp = async () => {
     setError('');
 
-    if (!email.trim() || !password.trim()) {
-      setError('Please enter your email and password.');
+    if (!firstName || !lastName || !email || !password || !confirm) {
+      setError('Please fill all fields.');
+      return;
+    }
+
+    if (password !== confirm) {
+      setError('Passwords do not match.');
       return;
     }
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/auth/login`, {
+      const res = await fetch(`${API_URL}/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: email.trim(),
-          password: password.trim(),
+          first_name: firstName,
+          last_name: lastName,
+          email,
+          phone,
+          password,
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.message || 'Invalid email or password.');
+        setError(data.message || 'Sign up failed.');
         return;
       }
 
-      router.replace('/UserDashboard');
+      router.replace('/SignIn');
     } catch (e) {
       console.error(e);
       setError('Cannot connect to server. Please try again.');
@@ -64,23 +77,56 @@ export default function SignInScreen() {
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-        <Text style={styles.title}>Sign In to continue</Text>
-      <View style={styles.card}>
-        
+      {/* Back arrow */}
+      <View style={styles.topRow}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
 
-        {/* Email */}
-        <Text style={styles.label}>email</Text>
+        <Text style={styles.title}>Sign Up</Text>
+        <Text style={styles.subtitle}>Sign up to Continue...</Text>
+
+      <View style={styles.card}>
+        <Text style={styles.label}>First name</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Type your first name here"
+          placeholderTextColor="#B0A9A0"
+          value={firstName}
+          onChangeText={setFirstName}
+        />
+
+        <Text style={styles.label}>Last name</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Type your last name here"
+          placeholderTextColor="#B0A9A0"
+          value={lastName}
+          onChangeText={setLastName}
+        />
+
+        <Text style={styles.label}>Email</Text>
         <TextInput
           style={styles.input}
           placeholder="Type your email here"
           placeholderTextColor="#B0A9A0"
           value={email}
           onChangeText={setEmail}
-          autoCapitalize="none"
           keyboardType="email-address"
+          autoCapitalize="none"
         />
 
-        {/* Password */}
+        <Text style={styles.label}>Mobile Number</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Type your mobile number here"
+          placeholderTextColor="#B0A9A0"
+          value={phone}
+          onChangeText={setPhone}
+          keyboardType="phone-pad"
+        />
+
         <Text style={styles.label}>Password</Text>
         <TextInput
           style={styles.input}
@@ -91,33 +137,29 @@ export default function SignInScreen() {
           secureTextEntry
         />
 
+        <Text style={styles.label}>Confirm Password</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Confirm your password"
+          placeholderTextColor="#B0A9A0"
+          value={confirm}
+          onChangeText={setConfirm}
+          secureTextEntry
+        />
+
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         <TouchableOpacity
-          style={styles.forgotRow}
-          onPress={() => router.push('/ForgotPassword')}
-        >
-          <Text style={styles.forgotText}>Forgot Password?</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleSignIn}
+          onPress={handleSignUp}
           disabled={loading}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.buttonText}>Sign In</Text>
+            <Text style={styles.buttonText}>Sign Up</Text>
           )}
         </TouchableOpacity>
-
-        <View style={styles.footerRow}>
-          <Text style={styles.footerText}>Don&apos;t have an account? </Text>
-          <TouchableOpacity onPress={() => router.push('/SignUp')}>
-            <Text style={styles.footerLink}>Sign Up</Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
       <View style={styles.bottom}>
@@ -137,6 +179,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: '6%',
     paddingTop: 60, 
   },
+  topRow: {
+    position: 'absolute',
+    top: 40,
+    left: 20,
+  },
+  backButton: {
+    padding: 4,
+  },
   card: {
     width: '100%',
     backgroundColor: BLACK_BOX,
@@ -154,36 +204,35 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 4,
+  },
+  subtitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 20,
+    opacity: 0.8,
   },
   label: {
     color: '#FFFFFF',
     fontSize: 14,
     marginBottom: 6,
-    textTransform: 'capitalize',
   },
   input: {
     backgroundColor: CREAM,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    marginBottom: 16,
+    marginBottom: 14,
     fontSize: 14,
-  },
-  forgotRow: {
-    alignItems: 'flex-end',
-    marginBottom: 20,
-  },
-  forgotText: {
-    color: YELLOW,
-    fontSize: 12,
   },
   button: {
     backgroundColor: YELLOW,
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
-    marginBottom: 12,
+    marginTop: 8,
+    marginBottom: 8,
   },
   buttonDisabled: {
     opacity: 0.7,
@@ -197,20 +246,6 @@ const styles = StyleSheet.create({
     color: 'red',
     fontSize: 12,
     marginBottom: 6,
-  },
-  footerRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 4,
-  },
-  footerText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-  },
-  footerLink: {
-    color: YELLOW,
-    fontSize: 13,
-    fontWeight: '600',
   },
   bottom: {
     position: 'absolute',

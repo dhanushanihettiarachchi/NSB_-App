@@ -1,7 +1,9 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Image, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
-import { globalStyles, NSB_COLORS } from '@/styles/global';
+
+const NAVY = '#020038';
+const GOLD = '#FFB600';
 
 export default function SplashScreen() {
   useEffect(() => {
@@ -13,7 +15,7 @@ export default function SplashScreen() {
   }, []);
 
   return (
-    <View style={globalStyles.centeredScreen}>
+    <View style={styles.screen}>
       <Image
         source={require('../assets/images/nsb/nsb-logo-new.png')}
         style={styles.logo}
@@ -24,7 +26,7 @@ export default function SplashScreen() {
       <Text style={styles.subtitle}>National Savings Bank</Text>
 
       <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" color={NSB_COLORS.gold} />
+        <ActivityIndicator size="large" color={GOLD} />
         <Text style={styles.loadingText}>Loading...</Text>
       </View>
     </View>
@@ -32,6 +34,12 @@ export default function SplashScreen() {
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: NAVY,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   logo: {
     width: 150,
     height: 150,
