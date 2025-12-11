@@ -3,17 +3,28 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 
-export default function ManagerDashboard() {
+export default function UserDashboard() {
   return (
     <View style={styles.container}>
-      
+
       {/* Back Button */}
-     <TouchableOpacity style={styles.backButton} onPress={() => router.replace('/SignIn')}>
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => router.replace('/SignIn')}
+      >
         <Ionicons name="chevron-back" size={28} color="#FFFFFF" />
-     </TouchableOpacity>
+      </TouchableOpacity>
 
+      <Text style={styles.title}>User Dashboard</Text>
 
-      <Text style={styles.text}>User Dashboard Screen</Text>
+      {/* View Bungalows Button */}
+      <TouchableOpacity
+        style={styles.button}
+        onPress={() => router.push('/UserBungalows')}
+      >
+        <Text style={styles.buttonText}>View Available Bungalows</Text>
+      </TouchableOpacity>
+
     </View>
   );
 }
@@ -24,16 +35,36 @@ const styles = StyleSheet.create({
     backgroundColor: '#00113D',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 20,
   },
-  text: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
+
   backButton: {
     position: 'absolute',
     top: 50,
     left: 20,
     padding: 5,
+  },
+
+  title: {
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: 'bold',
+    marginBottom: 40,
+  },
+
+  button: {
+    backgroundColor: '#FFB600',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginTop: 20,
+    width: '80%',
+    alignItems: 'center',
+  },
+
+  buttonText: {
+    color: '#00113D',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
