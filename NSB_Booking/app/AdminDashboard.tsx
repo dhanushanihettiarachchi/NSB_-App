@@ -17,10 +17,19 @@ export default function ManagerDashboard() {
       {/* USER ACCESS MANAGEMENT BUTTON */}
       <TouchableOpacity 
         style={styles.menuButton}
-        onPress={() => router.push('/UserAccess')}   // <-- Navigate to UserAccess.tsx screen
+        onPress={() => router.push('/UserAccess')}
       >
         <Ionicons name="people" size={24} color="#00113D" style={{ marginRight: 8 }} />
         <Text style={styles.menuText}>Manage User Access</Text>
+      </TouchableOpacity>
+
+      {/* CIRCUIT MANAGEMENT BUTTON */}
+      <TouchableOpacity 
+        style={styles.menuButton}
+        onPress={() => router.push('/CircuitManage')}   // <-- Navigate to circuit manage screen
+      >
+        <Ionicons name="home" size={24} color="#00113D" style={{ marginRight: 8 }} />
+        <Text style={styles.menuText}>Manage Circuit Bungalows</Text>
       </TouchableOpacity>
 
     </View>

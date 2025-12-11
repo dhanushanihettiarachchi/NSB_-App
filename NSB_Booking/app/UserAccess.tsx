@@ -7,7 +7,8 @@ import {
   FlatList,
   TouchableOpacity,
   Alert,
-  TextInput,             // 👈 add this
+  TextInput,
+  Platform,             // 👈 add this
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,7 +19,10 @@ const YELLOW = '#FFB600';
 const CREAM = '#FFEBD3';
 const BLACK_BOX = '#050515';
 
-const API_URL = 'http://192.168.8.109:3001';
+const API_URL =
+  Platform.OS === 'web'
+    ? 'http://localhost:3001'
+    : 'http://192.168.8.109:3001';
 
 type User = {
   user_id: number;

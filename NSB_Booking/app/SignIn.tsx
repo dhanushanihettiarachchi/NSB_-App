@@ -16,7 +16,11 @@ const YELLOW = '#FFB600';
 const CREAM = '#FFEBD3';
 const BLACK_BOX = '#050515';
 
-const API_URL = 'http://192.168.8.109:3001'; // <-- keep your IP here
+const API_URL =
+  Platform.OS === 'web'
+    ? 'http://localhost:3001'
+    : 'http://192.168.8.111:3001';
+
 
 export default function SignInScreen() {
   const [email, setEmail] = useState('');
