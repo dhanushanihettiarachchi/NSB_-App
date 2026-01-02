@@ -1,5 +1,4 @@
-// app/EditCircuit.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -10,8 +9,12 @@ import {
   TouchableOpacity,
   Alert,
   Platform,
+  Image,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type CircuitDetailsResponse = {
   message?: string;
@@ -36,28 +39,126 @@ const BLACK_BOX = '#050515';
 
 type SavingTarget = 'circuit' | 'rooms' | 'images' | null;
 
+const API_URL =
+  Platform.OS === 'web' ? 'http://localhost:3001' : 'http://192.168.8.111:3001';
+
+const toFullUrl = (p?: string) => {
+  if (!p) return '';
+  if (p.startsWith('http')) return p;
+  return `${API_URL}${p}`;
+};
+
+const parseCommaImages = (txt: string) =>
+  txt
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+async function getLoggedInUserId(): Promise<number | null> {
+  const keys = ['user_id', 'userId', 'id'];
+  for (const k of keys) {
+    const v = await AsyncStorage.getItem(k);
+    const n = v ? Number(v) : NaN;
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+async function buildAuthHeaders(extra: Record<string, string> = {}) {
+  const userId = await getLoggedInUserId();
+  if (!userId) return null;
+
+  const base: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-user-id': String(userId),
+    ...extra,
+  };
+
+  if (Platform.OS === 'web') base['Cache-Control'] = 'no-store';
+  return base;
+}
+
+function appendImageToForm(form: FormData, fieldName: string, asset: any, fallbackName: string) {
+  if (Platform.OS === 'web' && asset?.file) {
+    const file: File = asset.file;
+    form.append(fieldName, file, file.name || fallbackName);
+    return;
+  }
+
+  form.append(
+    fieldName,
+    {
+      uri: asset.uri,
+      name: asset.fileName || fallbackName,
+      type: asset.mimeType || 'image/jpeg',
+    } as any
+  );
+}
+
 const EditCircuitScreen = () => {
   const { circuitId } = useLocalSearchParams<{ circuitId?: string }>();
 
   const [loading, setLoading] = useState(true);
   const [savingTarget, setSavingTarget] = useState<SavingTarget>(null);
 
-  // circuit fields
   const [circuitName, setCircuitName] = useState('');
   const [city, setCity] = useState('');
   const [street, setStreet] = useState('');
   const [imagePath, setImagePath] = useState('');
+  const [originalImagePath, setOriginalImagePath] = useState('');
 
-  // rooms + images
   const [rooms, setRooms] = useState<RoomForm[]>([]);
-  const [imagesText, setImagesText] = useState(''); // comma separated paths
+  const [imagesText, setImagesText] = useState('');
 
-  const API_URL =
-    Platform.OS === 'web'
-      ? 'http://localhost:3001'
-      : 'http://192.168.8.111:3001';
+  const [uploadingMain, setUploadingMain] = useState(false);
+  const [uploadingExtra, setUploadingExtra] = useState(false);
 
-  // Load existing circuit + rooms + images
+  const previewExtra = useMemo(() => parseCommaImages(imagesText), [imagesText]);
+
+  const reloadFromServer = async () => {
+    if (!circuitId) return;
+    try {
+      const res = await fetch(`${API_URL}/circuits/${circuitId}?t=${Date.now()}`, {
+        headers: Platform.OS === 'web' ? { 'Cache-Control': 'no-store' } : undefined,
+      });
+
+      const json: CircuitDetailsResponse = await res.json().catch(() => ({
+        circuit: null,
+        rooms: [],
+        images: [],
+      }));
+
+      if (!res.ok) return;
+
+      const c = json.circuit;
+      setCircuitName(c?.circuit_Name || '');
+      setCity(c?.city || '');
+      setStreet(c?.street || '');
+      setImagePath(c?.imagePath || '');
+      setOriginalImagePath(c?.imagePath || '');
+
+      const rForms: RoomForm[] = (json.rooms || []).map((r) => ({
+        room_Id: r.room_Id,
+        room_Name: r.room_Name || '',
+        room_Count: r.room_Count != null ? String(r.room_Count) : '',
+        max_Persons: r.max_Persons != null ? String(r.max_Persons) : '',
+        price_per_person: r.price_per_person != null ? String(r.price_per_person) : '',
+        description: r.description || '',
+      }));
+
+      setRooms(
+        rForms.length > 0
+          ? rForms
+          : [{ room_Name: '', room_Count: '1', max_Persons: '1', price_per_person: '0', description: '' }]
+      );
+
+      const imgPaths = (json.images || []).map((img) => img.imagePath || '');
+      setImagesText(imgPaths.filter(Boolean).join(', '));
+    } catch (err) {
+      console.error('Error reloading from server:', err);
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       if (!circuitId) {
@@ -65,77 +166,14 @@ const EditCircuitScreen = () => {
         Alert.alert('Error', 'No circuit id provided.');
         return;
       }
-
-      try {
-        const res = await fetch(`${API_URL}/circuits/${circuitId}`);
-        const json: CircuitDetailsResponse = await res.json();
-
-        if (!res.ok) {
-          console.log('Error loading circuit for edit:', json);
-          Alert.alert('Error', json.message || 'Could not load circuit');
-          setLoading(false);
-          return;
-        }
-
-        const c = json.circuit;
-        setCircuitName(c.circuit_Name || '');
-        setCity(c.city || '');
-        setStreet(c.street || '');
-        setImagePath(c.imagePath || '');
-
-        // existing rooms → keep room_Id
-        const rForms: RoomForm[] = (json.rooms || []).map((r) => ({
-          room_Id: r.room_Id,
-          room_Name: r.room_Name || '',
-          room_Count:
-            r.room_Count !== undefined && r.room_Count !== null
-              ? String(r.room_Count)
-              : '',
-          max_Persons:
-            r.max_Persons !== undefined && r.max_Persons !== null
-              ? String(r.max_Persons)
-              : '',
-          price_per_person:
-            r.price_per_person !== undefined && r.price_per_person !== null
-              ? String(r.price_per_person)
-              : '',
-          description: r.description || '',
-        }));
-
-        setRooms(
-          rForms.length > 0
-            ? rForms
-            : [
-                {
-                  room_Name: '',
-                  room_Count: '',
-                  max_Persons: '',
-                  price_per_person: '',
-                  description: '',
-                },
-              ]
-        );
-
-        // existing images → comma separated
-        const imgPaths = (json.images || []).map((img) => img.imagePath || '');
-        setImagesText(imgPaths.filter(Boolean).join(', '));
-      } catch (err) {
-        console.log('Request error (load edit):', err);
-        Alert.alert('Error', 'Cannot connect to server.');
-      } finally {
-        setLoading(false);
-      }
+      setLoading(true);
+      await reloadFromServer();
+      setLoading(false);
     };
-
     load();
   }, [circuitId]);
 
-  // helpers for room editing
-  const updateRoomField = (
-    index: number,
-    field: keyof RoomForm,
-    value: string
-  ) => {
+  const updateRoomField = (index: number, field: keyof RoomForm, value: string) => {
     setRooms((prev) => {
       const copy = [...prev];
       copy[index] = { ...copy[index], [field]: value };
@@ -146,224 +184,264 @@ const EditCircuitScreen = () => {
   const addRoom = () => {
     setRooms((prev) => [
       ...prev,
-      {
-        room_Name: '',
-        room_Count: '',
-        max_Persons: '',
-        price_per_person: '',
-        description: '',
-      },
+      { room_Name: '', room_Count: '1', max_Persons: '1', price_per_person: '0', description: '' },
     ]);
   };
 
-  // remove a room from state (backend will soft-delete)
   const removeRoom = (index: number) => {
+    if (rooms.length <= 1) {
+      Alert.alert('Warning', 'Circuit must have at least one room type.');
+      return;
+    }
     setRooms((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const goToDetails = () =>
-    router.replace({
-      pathname: '/CircuitDetails',
-      params: { circuitId: String(circuitId) },
-    });
+  const pickAndUploadMainImage = async () => {
+    if (uploadingMain || savingTarget !== null) return;
 
-  const stopSaving = () => setSavingTarget(null);
+    try {
+      setUploadingMain(true);
 
-  //
-  // 1) Save only circuit info (Circuits table)
-  //
-  const handleSaveCircuitInfo = async () => {
-    if (!circuitId) {
-      Alert.alert('Error', 'No circuit id provided.');
-      return;
+      if (Platform.OS !== 'web') {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Permission needed', 'Please allow gallery permission.');
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.85,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const asset = result.assets[0];
+      const form = new FormData();
+      appendImageToForm(form, 'image', asset, `main_${Date.now()}.jpg`);
+
+      const res = await fetch(`${API_URL}/circuits/upload/main`, { method: 'POST', body: form });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        Alert.alert('Upload failed', json.message || 'Could not upload main image');
+        return;
+      }
+      if (!json.imagePath) {
+        Alert.alert('Upload failed', 'Server did not return imagePath');
+        return;
+      }
+
+      setImagePath(json.imagePath);
+      Alert.alert('Success', 'Main image uploaded. Click "Save Circuit Info" to apply changes.');
+    } catch (err) {
+      console.error('Main upload error:', err);
+      Alert.alert('Error', 'Upload failed (cannot connect to server).');
+    } finally {
+      setUploadingMain(false);
     }
+  };
 
+  const pickAndUploadExtraImages = async () => {
+    if (uploadingExtra || savingTarget !== null) return;
+
+    try {
+      setUploadingExtra(true);
+
+      if (Platform.OS !== 'web') {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Permission needed', 'Please allow gallery permission.');
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+        quality: 0.85,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const form = new FormData();
+      result.assets.forEach((asset, idx) => {
+        appendImageToForm(form, 'images', asset, `extra_${Date.now()}_${idx}.jpg`);
+      });
+
+      const res = await fetch(`${API_URL}/circuits/upload/extra`, { method: 'POST', body: form });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        Alert.alert('Upload failed', json.message || 'Could not upload extra images');
+        return;
+      }
+
+      const newPaths: string[] = Array.isArray(json.imagePaths) ? json.imagePaths : [];
+      if (newPaths.length === 0) {
+        Alert.alert('Upload', 'Upload finished but no image paths returned.');
+        return;
+      }
+
+      const merged = Array.from(new Set([...previewExtra, ...newPaths]));
+      setImagesText(merged.join(', '));
+      Alert.alert('Success', `${newPaths.length} image(s) uploaded. Click "Save Extra Images" to apply changes.`);
+    } catch (err) {
+      console.error('Extra upload error:', err);
+      Alert.alert('Error', 'Upload failed (cannot connect to server).');
+    } finally {
+      setUploadingExtra(false);
+    }
+  };
+
+  const handleSaveCircuitInfo = async () => {
+    if (!circuitId) return Alert.alert('Error', 'No circuit id provided.');
     if (!circuitName || !city || !street) {
-      Alert.alert('Error', 'Please fill circuit name, city and street.');
-      return;
+      return Alert.alert('Error', 'Please fill circuit name, city and street.');
     }
 
     try {
       setSavingTarget('circuit');
 
-      const resCircuit = await fetch(`${API_URL}/circuits/${circuitId}`, {
+      const headers = await buildAuthHeaders();
+      if (!headers) {
+        Alert.alert('Error', 'User id not found. Please login again.');
+        return;
+      }
+
+      const res = await fetch(`${API_URL}/circuits/${circuitId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           circuit_Name: circuitName,
           city,
           street,
-          imagePath,
+          imagePath: imagePath || null,
         }),
       });
 
-      const jsonCircuit = await resCircuit.json();
-      if (!resCircuit.ok) {
-        console.log('Error updating circuit:', jsonCircuit);
-        Alert.alert('Error', jsonCircuit.message || 'Could not update circuit');
-        stopSaving();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        Alert.alert('Error', json.message || 'Could not update circuit');
         return;
       }
 
-      if (Platform.OS === 'web') {
-        stopSaving();
-        Alert.alert('Updated', 'Circuit info updated successfully.');
-        goToDetails();
-      } else {
-        Alert.alert('Updated', 'Circuit info updated successfully.', [
-          {
-            text: 'OK',
-            onPress: () => {
-              stopSaving();
-              goToDetails();
-            },
-          },
-        ]);
-      }
+      Alert.alert('Success', 'Circuit info updated successfully!');
+      await reloadFromServer();
     } catch (err) {
-      console.log('Request error (update circuit):', err);
-      stopSaving();
+      console.error('Save circuit error:', err);
       Alert.alert('Error', 'Cannot connect to server.');
+    } finally {
+      setSavingTarget(null);
     }
   };
 
-  //
-  // 2) Save only rooms (CircuitRooms table)
-  //
   const handleSaveRooms = async () => {
-    if (!circuitId) {
-      Alert.alert('Error', 'No circuit id provided.');
-      return;
-    }
+    if (!circuitId) return Alert.alert('Error', 'No circuit id provided.');
 
-    // clean/validate rooms
-    const cleanedRooms = rooms
+    const cleaned = rooms
       .map((r) => ({
         room_Id: r.room_Id,
         room_Name: r.room_Name.trim(),
-        room_Count: r.room_Count.trim(),
-        max_Persons: r.max_Persons.trim(),
-        price_per_person: r.price_per_person.trim(),
-        description: r.description.trim(),
+        room_Count: Number(r.room_Count) || 1,
+        max_Persons: Number(r.max_Persons) || 1,
+        price_per_person: Number(r.price_per_person) || 0,
+        description: r.description.trim() || null,
       }))
       .filter((r) => r.room_Name.length > 0);
 
-    if (cleanedRooms.length === 0) {
-      Alert.alert('Error', 'Please add at least one room type.');
-      return;
-    }
+    if (cleaned.length === 0) return Alert.alert('Error', 'Please add at least one room type.');
 
     try {
       setSavingTarget('rooms');
 
-      const roomsPayload = cleanedRooms.map((r) => ({
-        room_Id: r.room_Id,
-        room_Name: r.room_Name,
-        room_Count: Number(r.room_Count) || 1,
-        max_Persons: Number(r.max_Persons) || 1,
-        price_per_person: Number(r.price_per_person) || 0,
-        description: r.description || null,
-      }));
-
-      const resRooms = await fetch(
-        `${API_URL}/circuits/${circuitId}/rooms/replace`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            rooms: roomsPayload,
-            createdBy: 1, // TODO: use logged-in user id
-          }),
-        }
-      );
-
-      const jsonRooms = await resRooms.json();
-      if (!resRooms.ok) {
-        console.log('Error updating rooms:', jsonRooms);
-        Alert.alert('Error', jsonRooms.message || 'Could not update rooms');
-        stopSaving();
+      const headers = await buildAuthHeaders();
+      if (!headers) {
+        Alert.alert('Error', 'User id not found. Please login again.');
         return;
       }
 
-      if (Platform.OS === 'web') {
-        stopSaving();
-        Alert.alert('Updated', 'Rooms updated successfully.');
-        goToDetails();
-      } else {
-        Alert.alert('Updated', 'Rooms updated successfully.', [
-          {
-            text: 'OK',
-            onPress: () => {
-              stopSaving();
-              goToDetails();
-            },
-          },
-        ]);
+      const res = await fetch(`${API_URL}/circuits/${circuitId}/rooms/replace`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ rooms: cleaned }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        Alert.alert('Error', json.message || 'Could not update rooms');
+        return;
       }
+
+      Alert.alert('Success', 'Rooms updated successfully!');
+      await reloadFromServer();
     } catch (err) {
-      console.log('Request error (update rooms):', err);
-      stopSaving();
+      console.error('Save rooms error:', err);
       Alert.alert('Error', 'Cannot connect to server.');
+    } finally {
+      setSavingTarget(null);
     }
   };
 
-  //
-  // 3) Save only extra images (CircuitImages table)
-  //
   const handleSaveImages = async () => {
-    if (!circuitId) {
-      Alert.alert('Error', 'No circuit id provided.');
-      return;
-    }
+    if (!circuitId) return Alert.alert('Error', 'No circuit id provided.');
 
-    const imagesArray = imagesText
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    const imagesArray = parseCommaImages(imagesText);
 
     try {
       setSavingTarget('images');
 
-      const resImages = await fetch(
-        `${API_URL}/circuits/${circuitId}/images/replace`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            images: imagesArray,
-            createdBy: 1, // TODO: logged-in user
-          }),
-        }
-      );
-
-      const jsonImages = await resImages.json();
-      if (!resImages.ok) {
-        console.log('Error updating images:', jsonImages);
-        Alert.alert('Error', jsonImages.message || 'Could not update images');
-        stopSaving();
+      const headers = await buildAuthHeaders();
+      if (!headers) {
+        Alert.alert('Error', 'User id not found. Please login again.');
         return;
       }
 
-      if (Platform.OS === 'web') {
-        stopSaving();
-        Alert.alert('Updated', 'Images updated successfully.');
-        goToDetails();
-      } else {
-        Alert.alert('Updated', 'Images updated successfully.', [
-          {
-            text: 'OK',
-            onPress: () => {
-              stopSaving();
-              goToDetails();
-            },
-          },
-        ]);
+      const res = await fetch(`${API_URL}/circuits/${circuitId}/images/replace`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ images: imagesArray }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        Alert.alert('Error', json.message || 'Could not update images');
+        return;
       }
+
+      Alert.alert('Success', 'Extra images updated successfully!');
+      await reloadFromServer();
     } catch (err) {
-      console.log('Request error (update images):', err);
-      stopSaving();
+      console.error('Save images error:', err);
       Alert.alert('Error', 'Cannot connect to server.');
+    } finally {
+      setSavingTarget(null);
     }
+  };
+
+  const removeOneExtra = (idx: number) => {
+    const updated = previewExtra.filter((_, i) => i !== idx);
+    setImagesText(updated.join(', '));
+  };
+
+  const clearAllExtra = () => {
+    setImagesText('');
+    Alert.alert('Cleared', 'Extra images cleared. Click "Save Extra Images" to apply changes.');
+  };
+
+  const clearMainImageLocal = () => {
+    setImagePath('');
+    Alert.alert('Cleared', 'Main image cleared. Click "Save Circuit Info" to apply changes.');
+  };
+
+  const goBackToDetailsFresh = () => {
+    if (!circuitId) return router.back();
+    router.replace({
+      pathname: '/CircuitDetails',
+      params: { circuitId: String(circuitId), t: String(Date.now()) },
+    });
   };
 
   if (loading) {
@@ -376,194 +454,191 @@ const EditCircuitScreen = () => {
   }
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.screen}
-      keyboardShouldPersistTaps="handled"
-    >
+    <ScrollView contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled">
+      <View style={styles.topRow}>
+        <TouchableOpacity style={styles.backBtn} onPress={goBackToDetailsFresh}>
+          <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+
       <Text style={styles.title}>Edit Circuit</Text>
 
+      {/* Circuit Info */}
       <View style={styles.card}>
-        {/* Circuit fields */}
         <Text style={styles.sectionTitle}>Circuit Info</Text>
 
         <Text style={styles.label}>Circuit Name</Text>
-        <TextInput
-          style={styles.input}
-          value={circuitName}
-          onChangeText={setCircuitName}
-          placeholder="Circuit Name"
-          placeholderTextColor="#8F8478"
-        />
+        <TextInput style={styles.input} value={circuitName} onChangeText={setCircuitName} />
 
         <Text style={styles.label}>City</Text>
-        <TextInput
-          style={styles.input}
-          value={city}
-          onChangeText={setCity}
-          placeholder="City"
-          placeholderTextColor="#8F8478"
-        />
+        <TextInput style={styles.input} value={city} onChangeText={setCity} />
 
         <Text style={styles.label}>Street</Text>
-        <TextInput
-          style={styles.input}
-          value={street}
-          onChangeText={setStreet}
-          placeholder="Street"
-          placeholderTextColor="#8F8478"
-        />
+        <TextInput style={styles.input} value={street} onChangeText={setStreet} />
 
-        <Text style={styles.label}>Main Image Path</Text>
-        <TextInput
-          style={styles.input}
-          value={imagePath}
-          onChangeText={setImagePath}
-          placeholder="Main Image Path"
-          placeholderTextColor="#8F8478"
-        />
+        <Text style={styles.label}>Main Image</Text>
+        {imagePath ? (
+          <View style={{ marginBottom: 10 }}>
+            <Image
+              source={{ uri: toFullUrl(imagePath) }}
+              style={{ width: '100%', height: 170, borderRadius: 12 }}
+              resizeMode="cover"
+            />
+            <Text style={styles.hintText}>Path: {imagePath}</Text>
+          </View>
+        ) : (
+          <Text style={styles.hintText}>No main image selected.</Text>
+        )}
 
-        {/* Save circuit info only */}
-        <TouchableOpacity
-          style={styles.saveButton}
-          onPress={handleSaveCircuitInfo}
-          disabled={savingTarget !== null}
-        >
-          <Text style={styles.saveButtonText}>
-            {savingTarget === 'circuit' ? 'Saving...' : 'Save Circuit Info'}
-          </Text>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+          <TouchableOpacity
+            style={[styles.secondaryButton, { flex: 1 }]}
+            onPress={pickAndUploadMainImage}
+            disabled={uploadingMain || savingTarget !== null}
+          >
+            {uploadingMain ? <ActivityIndicator color={YELLOW} /> : <Text style={styles.secondaryButtonText}>Pick & Upload Main</Text>}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.dangerButton, { flex: 1 }]}
+            onPress={clearMainImageLocal}
+            disabled={uploadingMain || savingTarget !== null || !imagePath}
+          >
+            <Text style={styles.dangerText}>Clear Main</Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity style={styles.saveButton} onPress={handleSaveCircuitInfo} disabled={savingTarget !== null}>
+          {savingTarget === 'circuit' ? <ActivityIndicator color={NAVY} /> : <Text style={styles.saveButtonText}>Save Circuit Info</Text>}
         </TouchableOpacity>
+      </View>
 
-        {/* Rooms section */}
-        <Text style={[styles.sectionTitle, { marginTop: 20 }]}>
-          Rooms
-        </Text>
+      {/* Rooms */}
+      <View style={[styles.card, { marginTop: 20 }]}>
+        <Text style={styles.sectionTitle}>Rooms</Text>
+        <Text style={styles.hintText}>Note: Removing rooms here will deactivate them in the database.</Text>
 
         {rooms.map((room, index) => (
           <View key={index} style={styles.roomCard}>
-            <Text style={styles.roomHeader}>
-              Room {index + 1}{' '}
-              {room.room_Id ? `(ID: ${room.room_Id})` : '(new)'}
-            </Text>
+            <View style={styles.roomHeaderRow}>
+              <Text style={styles.roomHeader}>
+                Room {index + 1} {room.room_Id ? `(ID: ${room.room_Id})` : '(new)'}
+              </Text>
+              {rooms.length > 1 && (
+                <TouchableOpacity
+                  onPress={() => removeRoom(index)}
+                  disabled={savingTarget !== null}
+                  style={styles.removeIconBtn}
+                >
+                  <Ionicons name="trash-outline" size={20} color="#FFB3B3" />
+                </TouchableOpacity>
+              )}
+            </View>
 
             <TextInput
               style={styles.input}
-              placeholder="Room Name (eg: A, B, Family Room)"
+              placeholder="Room Name"
               placeholderTextColor="#8F8478"
               value={room.room_Name}
-              onChangeText={(text) =>
-                updateRoomField(index, 'room_Name', text)
-              }
+              onChangeText={(t) => updateRoomField(index, 'room_Name', t)}
             />
-
             <TextInput
               style={styles.input}
               placeholder="Room Count"
               placeholderTextColor="#8F8478"
               keyboardType="numeric"
               value={room.room_Count}
-              onChangeText={(text) =>
-                updateRoomField(index, 'room_Count', text)
-              }
+              onChangeText={(t) => updateRoomField(index, 'room_Count', t)}
             />
-
             <TextInput
               style={styles.input}
               placeholder="Max Persons"
               placeholderTextColor="#8F8478"
               keyboardType="numeric"
               value={room.max_Persons}
-              onChangeText={(text) =>
-                updateRoomField(index, 'max_Persons', text)
-              }
+              onChangeText={(t) => updateRoomField(index, 'max_Persons', t)}
             />
-
             <TextInput
               style={styles.input}
               placeholder="Price per person"
               placeholderTextColor="#8F8478"
               keyboardType="numeric"
               value={room.price_per_person}
-              onChangeText={(text) =>
-                updateRoomField(index, 'price_per_person', text)
-              }
+              onChangeText={(t) => updateRoomField(index, 'price_per_person', t)}
             />
-
             <TextInput
               style={[styles.input, { height: 70 }]}
               placeholder="Description"
               placeholderTextColor="#8F8478"
               multiline
               value={room.description}
-              onChangeText={(text) =>
-                updateRoomField(index, 'description', text)
-              }
+              onChangeText={(t) => updateRoomField(index, 'description', t)}
             />
-
-            {/* Remove room button */}
-            <TouchableOpacity
-              style={styles.removeRoomButton}
-              onPress={() => removeRoom(index)}
-              disabled={savingTarget !== null}
-            >
-              <Text style={styles.removeRoomText}>Remove this room</Text>
-            </TouchableOpacity>
           </View>
         ))}
 
-        <TouchableOpacity
-          style={styles.addRoomButton}
-          onPress={addRoom}
-          disabled={savingTarget !== null}
-        >
+        <TouchableOpacity style={styles.addRoomButton} onPress={addRoom} disabled={savingTarget !== null}>
           <Text style={styles.addRoomText}>+ Add Room Type</Text>
         </TouchableOpacity>
 
-        {/* Save rooms only */}
-        <TouchableOpacity
-          style={[styles.saveButton, { marginTop: 12 }]}
-          onPress={handleSaveRooms}
-          disabled={savingTarget !== null}
-        >
-          <Text style={styles.saveButtonText}>
-            {savingTarget === 'rooms' ? 'Saving...' : 'Save Rooms'}
-          </Text>
+        <TouchableOpacity style={[styles.saveButton, { marginTop: 12 }]} onPress={handleSaveRooms} disabled={savingTarget !== null}>
+          {savingTarget === 'rooms' ? <ActivityIndicator color={NAVY} /> : <Text style={styles.saveButtonText}>Save Rooms</Text>}
+        </TouchableOpacity>
+      </View>
+
+      {/* Extra Images */}
+      <View style={[styles.card, { marginTop: 20 }]}>
+        <Text style={styles.sectionTitle}>Extra Images</Text>
+
+        {previewExtra.length === 0 ? (
+          <Text style={styles.hintText}>No extra images selected.</Text>
+        ) : (
+          <View style={{ marginTop: 8 }}>
+            {previewExtra.map((p, idx) => (
+              <View key={`${p}_${idx}`} style={{ marginBottom: 12 }}>
+                <Image source={{ uri: toFullUrl(p) }} style={{ width: '100%', height: 130, borderRadius: 12 }} resizeMode="cover" />
+                <Text style={styles.hintText} numberOfLines={1}>{p}</Text>
+
+                <TouchableOpacity style={{ marginTop: 6, alignSelf: 'flex-end' }} onPress={() => removeOneExtra(idx)} disabled={savingTarget !== null}>
+                  <Text style={styles.removeRoomText}>Remove this image</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+
+        <TouchableOpacity style={styles.secondaryButton} onPress={pickAndUploadExtraImages} disabled={uploadingExtra || savingTarget !== null}>
+          {uploadingExtra ? <ActivityIndicator color={YELLOW} /> : <Text style={styles.secondaryButtonText}>Pick & Upload Extra Images</Text>}
         </TouchableOpacity>
 
-        {/* Images section */}
-        <Text style={[styles.sectionTitle, { marginTop: 20 }]}>
-          Extra Images
-        </Text>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+          <TouchableOpacity
+            style={[styles.dangerButton, { flex: 1 }]}
+            onPress={clearAllExtra}
+            disabled={savingTarget !== null || previewExtra.length === 0}
+          >
+            <Text style={styles.dangerText}>Clear All</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.saveButton, { flex: 1, marginTop: 0 }]}
+            onPress={handleSaveImages}
+            disabled={savingTarget !== null}
+          >
+            {savingTarget === 'images' ? <ActivityIndicator color={NAVY} /> : <Text style={styles.saveButtonText}>Save Extra Images</Text>}
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[styles.label, { marginTop: 14 }]}>Extra Image Paths (auto-filled)</Text>
         <TextInput
           style={[styles.input, { height: 80 }]}
           value={imagesText}
           onChangeText={setImagesText}
-          placeholder="Image paths separated by commas (img1.jpg, img2.jpg)"
+          placeholder="Extra image paths will appear here"
           placeholderTextColor="#8F8478"
           multiline
+          editable={false}
         />
-
-        {/* Save images only */}
-        <TouchableOpacity
-          style={[styles.saveButton, { marginTop: 12 }]}
-          onPress={handleSaveImages}
-          disabled={savingTarget !== null}
-        >
-          <Text style={styles.saveButtonText}>
-            {savingTarget === 'images' ? 'Saving...' : 'Save Extra Images'}
-          </Text>
-        </TouchableOpacity>
-
-        {savingTarget !== null && (
-          <ActivityIndicator style={{ marginTop: 10 }} color={NAVY} />
-        )}
-
-        <TouchableOpacity
-          style={styles.cancelButton}
-          onPress={() => router.back()}
-          disabled={savingTarget !== null}
-        >
-          <Text style={styles.cancelText}>Cancel</Text>
-        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -579,23 +654,11 @@ const styles = StyleSheet.create({
     paddingTop: 40,
     paddingBottom: 30,
   },
-  center: {
-    flex: 1,
-    backgroundColor: NAVY,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: '#FFFFFF',
-    marginTop: 8,
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
+  topRow: { position: 'absolute', top: 40, left: 18, zIndex: 10 },
+  backBtn: { padding: 6 },
+  center: { flex: 1, backgroundColor: NAVY, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { color: '#FFFFFF', marginTop: 8 },
+  title: { color: '#FFFFFF', fontSize: 22, fontWeight: '700', textAlign: 'center', marginBottom: 16 },
   card: {
     width: '100%',
     backgroundColor: BLACK_BOX,
@@ -608,17 +671,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 6,
   },
-  sectionTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 6,
-  },
-  label: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    marginBottom: 4,
-  },
+  sectionTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginBottom: 6 },
+  label: { color: '#FFFFFF', fontSize: 13, marginBottom: 4, marginTop: 10 },
   input: {
     backgroundColor: CREAM,
     borderRadius: 10,
@@ -627,55 +681,40 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     fontSize: 14,
   },
-  roomCard: {
-    backgroundColor: '#171422',
-    borderRadius: 14,
-    padding: 10,
-    marginTop: 8,
-  },
-  roomHeader: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    marginBottom: 6,
-    fontSize: 14,
-  },
-  addRoomButton: {
-    marginTop: 8,
+  hintText: { color: '#B8B0A5', fontSize: 12, marginTop: 6 },
+  roomCard: { backgroundColor: '#171422', borderRadius: 14, padding: 10, marginTop: 8 },
+  roomHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 6,
   },
-  addRoomText: {
-    color: YELLOW,
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  removeRoomButton: {
-    marginTop: 6,
-    alignItems: 'flex-end',
-  },
-  removeRoomText: {
-    color: '#FFB3B3',
-    fontSize: 13,
-    fontWeight: '600',
-  },
+  roomHeader: { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
+  removeIconBtn: { padding: 4 },
+  addRoomButton: { marginTop: 8, alignItems: 'center' },
+  addRoomText: { color: YELLOW, fontWeight: '600', fontSize: 14 },
+  removeRoomText: { color: '#FFB3B3', fontSize: 13, fontWeight: '600' },
   saveButton: {
     backgroundColor: YELLOW,
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
+    marginTop: 10,
+  },
+  saveButtonText: { color: NAVY, fontWeight: '700', fontSize: 15 },
+  secondaryButton: {
+    backgroundColor: '#2B2735',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
     marginTop: 8,
   },
-  saveButtonText: {
-    color: NAVY,
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  cancelButton: {
-    marginTop: 14,
+  secondaryButtonText: { color: YELLOW, fontWeight: '600', fontSize: 14 },
+  dangerButton: {
+    backgroundColor: '#5A1A1A',
+    borderRadius: 10,
+    paddingVertical: 10,
     alignItems: 'center',
   },
-  cancelText: {
-    color: YELLOW,
-    fontWeight: '600',
-    fontSize: 14,
-  },
+  dangerText: { color: '#FFB3B3', fontWeight: '700', fontSize: 14 },
 });

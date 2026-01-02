@@ -6,8 +6,7 @@ import { router } from 'expo-router';
 export default function UserDashboard() {
   return (
     <View style={styles.container}>
-
-      {/* Back Button */}
+      {/* Back to Sign In */}
       <TouchableOpacity
         style={styles.backButton}
         onPress={() => router.replace('/SignIn')}
@@ -17,14 +16,13 @@ export default function UserDashboard() {
 
       <Text style={styles.title}>User Dashboard</Text>
 
-      {/* View Bungalows Button */}
+      {/* View bungalows button */}
       <TouchableOpacity
-        style={styles.button}
+        style={styles.mainButton}
         onPress={() => router.push('/UserBungalows')}
       >
-        <Text style={styles.buttonText}>View Available Bungalows</Text>
+        <Text style={styles.mainButtonText}>View Available Bungalows</Text>
       </TouchableOpacity>
-
     </View>
   );
 }
@@ -35,34 +33,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#00113D',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 20,
   },
-
   backButton: {
     position: 'absolute',
     top: 50,
     left: 20,
     padding: 5,
   },
-
   title: {
-    color: '#FFFFFF',
-    fontSize: 26,
+    color: '#fff',
+    fontSize: 22,
     fontWeight: 'bold',
-    marginBottom: 40,
+    marginBottom: 24,
   },
-
-  button: {
+  mainButton: {
     backgroundColor: '#FFB600',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    marginTop: 20,
-    width: '80%',
-    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 10,
   },
-
-  buttonText: {
+  mainButtonText: {
     color: '#00113D',
     fontSize: 16,
     fontWeight: '700',
