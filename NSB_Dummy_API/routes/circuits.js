@@ -392,14 +392,14 @@ router.patch('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Circuit not found or inactive' });
     }
 
-    // Update all active rooms' updatedDate (optional)
+    /* Update all active rooms' updatedDate (optional)
     await new sql.Request(tx)
       .input('circuit_Id', sql.Int, circuit_Id)
       .query(`
         UPDATE CircuitRooms
         SET updatedDate = GETDATE()
         WHERE circuit_Id = @circuit_Id AND is_active = 1;
-      `);
+      `);*/
 
     await tx.commit();
     res.json({ message: 'Circuit updated successfully' });
