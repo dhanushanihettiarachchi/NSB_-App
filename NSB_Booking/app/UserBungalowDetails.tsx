@@ -1,5 +1,5 @@
 // app/UserBungalowDetails.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,16 @@ import {
   ScrollView,
   Platform,
   TouchableOpacity,
-  Image, // ✅ use RN Image
+  Image,
+  FlatList,
+  Dimensions,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
 } from 'react-native';
 
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { API_URL } from './config';
 
 type CircuitDetailsResponse = {
   message?: string;
@@ -25,13 +30,12 @@ const NAVY = '#020038';
 const CREAM = '#FFEBD3';
 const BLACK_BOX = '#050515';
 
-const API_URL =
-  Platform.OS === 'web'
-    ? 'http://localhost:3001'
-    : 'http://192.168.8.111:3001';
+
+
+const { width: SCREEN_W } = Dimensions.get('window');
+const GALLERY_H = 230;
 
 const UserBungalowDetailsScreen = () => {
-  // Read all params and be flexible with the key name
   const params = useLocalSearchParams();
   const circuitId =
     (params.circuitId as string) ||
@@ -42,15 +46,16 @@ const UserBungalowDetailsScreen = () => {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // ✅ helper: DB path -> full URL
+  const buildImageUrl = (path?: string | null) => {
+    if (!path) return null;
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    const normalized = path.startsWith('/') ? path.slice(1) : path;
+    return `${API_URL}/${normalized}`;
+  };
+
   useEffect(() => {
     const loadDetails = async () => {
-      console.log(
-        'DEBUG UserBungalowDetails circuitId >>>',
-        circuitId,
-        'params=',
-        params
-      );
-
       if (!circuitId) {
         setErrorMessage('No circuit id provided to details screen.');
         setLoading(false);
@@ -59,24 +64,16 @@ const UserBungalowDetailsScreen = () => {
 
       try {
         const url = `${API_URL}/circuits/${circuitId}`;
-        console.log('DEBUG fetching user bungalow details from:', url);
-
         const res = await fetch(url);
-        const json: CircuitDetailsResponse = await res.json().catch((e) => {
-          console.log('JSON parse error:', e);
-          return {} as CircuitDetailsResponse;
-        });
-
-        console.log('DEBUG /circuits/:id response >>>', json);
+        const json: CircuitDetailsResponse = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          const msg = json.message || `Server returned status ${res.status}`;
-          setErrorMessage(msg);
+          setErrorMessage(json.message || `Server returned status ${res.status}`);
           setLoading(false);
           return;
         }
 
-        if (!json || !json.circuit) {
+        if (!json?.circuit) {
           setErrorMessage('API did not return circuit data.');
           setLoading(false);
           return;
@@ -85,7 +82,6 @@ const UserBungalowDetailsScreen = () => {
         setData(json);
         setErrorMessage(null);
       } catch (err) {
-        console.log('Request error (load user bungalow details):', err);
         setErrorMessage('Cannot connect to server.');
       } finally {
         setLoading(false);
@@ -95,6 +91,23 @@ const UserBungalowDetailsScreen = () => {
     loadDetails();
   }, [circuitId]);
 
+  // ✅ IMPORTANT: derive these BEFORE any early return
+  const circuit = data?.circuit;
+  const rooms = data?.rooms ?? [];
+  const images = data?.images ?? [];
+
+  // ✅ IMPORTANT: hooks must always run (even while loading)
+  const gallery = useMemo(() => {
+    const main = buildImageUrl(circuit?.imagePath);
+    const extras = images
+      .map((img: any) => buildImageUrl(img?.imagePath))
+      .filter(Boolean) as string[];
+
+    const all = [main, ...extras].filter(Boolean) as string[];
+    return Array.from(new Set(all)); // remove duplicates
+  }, [circuit?.imagePath, images]);
+
+  // ===== Loading / Error =====
   if (loading) {
     return (
       <View style={styles.center}>
@@ -104,7 +117,7 @@ const UserBungalowDetailsScreen = () => {
     );
   }
 
-  if (!data || !data.circuit) {
+  if (!circuit) {
     return (
       <View style={styles.center}>
         <Text style={styles.loadingText}>
@@ -120,140 +133,169 @@ const UserBungalowDetailsScreen = () => {
     );
   }
 
-  const { circuit, rooms = [], images = [] } = data;
-
-  // ✅ helper to turn DB path into full URL
-  const buildImageUrl = (path?: string | null) => {
-    if (!path) return null;
-
-    // already full URL?
-    if (path.startsWith('http://') || path.startsWith('https://')) {
-      return path;
-    }
-
-    const normalized = path.startsWith('/') ? path.slice(1) : path;
-    return `${API_URL}/${normalized}`;
-  };
-
-  const mainImageUrl = buildImageUrl(circuit.imagePath);
-
   return (
     <ScrollView contentContainerStyle={styles.container}>
       {/* Top back arrow */}
-      <TouchableOpacity
-        style={styles.headerBack}
-        onPress={() => router.back()}
-      >
+      <TouchableOpacity style={styles.headerBack} onPress={() => router.back()}>
         <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
       </TouchableOpacity>
 
-      <View style={styles.card}>
+      {/* ===== HERO CARD ===== */}
+      <View style={styles.heroCard}>
         <Text style={styles.title}>{circuit.circuit_Name}</Text>
 
-        <Text style={styles.line}>
-          <Text style={styles.label}>City: </Text>
-          {circuit.city}
-        </Text>
-        <Text style={styles.line}>
-          <Text style={styles.label}>Street: </Text>
-          {circuit.street}
-        </Text>
+        <View style={styles.locationRow}>
+          <Ionicons name="location-outline" size={18} color={CREAM} />
+          <Text style={styles.locationText}>
+            {circuit.city}
+            {circuit.street ? ` • ${circuit.street}` : ''}
+          </Text>
+        </View>
 
-        <Text style={styles.sectionTitle}>Main Image</Text>
-        {mainImageUrl ? (
-          <Image
-            source={{ uri: mainImageUrl }}
-            style={styles.mainImage}
-            resizeMode="cover"
-          />
+        {/* ===== Image Gallery (Main + Extras) ===== */}
+        {gallery.length > 0 ? (
+          <ImageCarousel images={gallery} />
         ) : (
-          <Text style={styles.smallText}>No main image</Text>
+          <View style={styles.noImageBox}>
+            <Ionicons name="image-outline" size={22} color="#B8B0A5" />
+            <Text style={styles.noImageText}>No images available</Text>
+          </View>
         )}
+      </View>
 
-        <Text style={styles.line}>
-          <Text style={styles.label}>Created By: </Text>
-          {circuit.createdByName || circuit.createdBy || 'Unknown'}
-        </Text>
-
-        <Text style={styles.line}>
-          <Text style={styles.label}>Created Date: </Text>
-          {circuit.createdDate
-            ? new Date(circuit.createdDate).toLocaleString()
-            : '-'}
-        </Text>
-
-        <Text style={styles.line}>
-          <Text style={styles.label}>Updated Date: </Text>
-          {circuit.updatedDate
-            ? new Date(circuit.updatedDate).toLocaleString()
-            : '-'}
+      {/* ===== ROOMS ===== */}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Rooms</Text>
+        <Text style={styles.sectionHint}>
+          {rooms.length > 0 ? `${rooms.length} available` : 'None available'}
         </Text>
       </View>
 
-      {/* Rooms */}
-      <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Rooms</Text>
       {rooms.length === 0 ? (
         <Text style={styles.smallText}>No rooms found.</Text>
       ) : (
         rooms.map((room: any) => (
-          <View key={room.room_Id} style={styles.subCard}>
-            <Text style={styles.cardTitle}>{room.room_Name}</Text>
-            <Text style={styles.cardLine}>
-              Count: {room.room_Count} • Max Persons: {room.max_Persons}
-            </Text>
-            <Text style={styles.cardLine}>
-              Price per person: {room.price_per_person}
-            </Text>
-            {room.description && (
-              <Text style={styles.cardLineSmall}>{room.description}</Text>
+          <View key={room.room_Id} style={styles.roomCard}>
+            <View style={styles.roomTopRow}>
+              <Text style={styles.roomName}>{room.room_Name}</Text>
+              {!!room.price_per_person && (
+                <View style={styles.pricePill}>
+                  <Text style={styles.priceText}>
+                    Rs {room.price_per_person}
+                    <Text style={styles.priceTextSmall}> /person</Text>
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.roomMetaRow}>
+              <View style={styles.metaItem}>
+                <Ionicons name="grid-outline" size={16} color="#E0D9CE" />
+                <Text style={styles.metaText}>Count: {room.room_Count}</Text>
+              </View>
+
+              <View style={styles.metaItem}>
+                <Ionicons name="people-outline" size={16} color="#E0D9CE" />
+                <Text style={styles.metaText}>Max: {room.max_Persons}</Text>
+              </View>
+            </View>
+
+            {!!room.description && (
+              <Text style={styles.roomDesc} numberOfLines={3}>
+                {room.description}
+              </Text>
             )}
           </View>
         ))
       )}
 
-      {/* Extra Images */}
-      <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Extra Images</Text>
-      {images.length === 0 ? (
-        <Text style={styles.smallText}>No extra images.</Text>
-      ) : (
-        images.map((img: any) => {
-          const uri = buildImageUrl(img.imagePath);
-          return (
-            <View key={img.image_Id} style={styles.subCard}>
-              {uri ? (
-                <Image
-                  source={{ uri }}
-                  style={styles.extraImage}
-                  resizeMode="cover"
-                />
-              ) : (
-                <Text style={styles.cardLineSmall}>
-                  Invalid image path: {img.imagePath}
-                </Text>
-              )}
+      {/* ===== Ready to Booking CTA ===== */}
+<View style={styles.bookingCtaCard}>
+  <Text style={styles.bookingCtaTitle}>Ready to book this bungalow?</Text>
+  <Text style={styles.bookingCtaSub}>
+    Select your room, dates and submit a booking request.
+  </Text>
 
-              <Text style={styles.cardLineSmall}>
-                Added:{' '}
-                {img.createdDate
-                  ? new Date(img.createdDate).toLocaleString()
-                  : '-'}
-              </Text>
-            </View>
-          );
-        })
-      )}
+  <TouchableOpacity
+    style={styles.bookingBtn}
+    onPress={() =>
+      router.push({
+        pathname: '/Bookings',
+        params: {
+          circuitId: String(circuit.circuit_Id ?? circuit.circuitId ?? ''),
+          circuitName: String(circuit.circuit_Name ?? ''),
+          city: String(circuit.city ?? ''),
+          street: String(circuit.street ?? ''),
+        },
+      })
+    }
+  >
+    <Ionicons name="calendar-outline" size={18} color="#00113D" />
+    <Text style={styles.bookingBtnText}>Add Booking</Text>
+  </TouchableOpacity>
+</View>
 
-      <TouchableOpacity
-        onPress={() => router.back()}
-        style={styles.backButtonBottom}
-      >
-        <Text style={styles.backText}>Back to bungalows list</Text>
-      </TouchableOpacity>
+<TouchableOpacity onPress={() => router.back()} style={styles.backButtonBottom}>
+  <Text style={styles.backText}>Back</Text>
+</TouchableOpacity>
+
     </ScrollView>
   );
 };
 
 export default UserBungalowDetailsScreen;
+
+/** ===============================
+ *  Image Carousel (Swipe Gallery)
+ *  =============================== */
+function ImageCarousel({ images }: { images: string[] }) {
+  const [index, setIndex] = useState(0);
+  const listRef = useRef<FlatList<string>>(null);
+
+  const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const x = e.nativeEvent.contentOffset.x;
+    const newIndex = Math.round(x / (SCREEN_W * 0.88));
+    setIndex(Math.max(0, Math.min(images.length - 1, newIndex)));
+  };
+
+  return (
+    <View style={styles.galleryWrap}>
+      <FlatList
+        ref={listRef}
+        data={images}
+        keyExtractor={(uri, i) => `${uri}-${i}`}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={onMomentumEnd}
+        snapToInterval={SCREEN_W * 0.88}
+        decelerationRate="fast"
+        renderItem={({ item }) => (
+          <View style={styles.galleryItem}>
+            <Image
+              source={{ uri: item }}
+              style={styles.galleryImage}
+              resizeMode="cover"
+            />
+          </View>
+        )}
+      />
+
+      {/* Dots */}
+      <View style={styles.dotsRow}>
+        {images.map((_, i) => (
+          <View
+            key={i}
+            style={[
+              styles.dot,
+              i === index ? styles.dotActive : styles.dotInactive,
+            ]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   container: {
@@ -268,10 +310,12 @@ const styles = StyleSheet.create({
     backgroundColor: NAVY,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 16,
   },
   loadingText: {
     color: '#FFFFFF',
     marginTop: 8,
+    textAlign: 'center',
   },
   headerBack: {
     position: 'absolute',
@@ -280,61 +324,163 @@ const styles = StyleSheet.create({
     zIndex: 10,
     padding: 4,
   },
-  card: {
+
+  // ===== Hero Card =====
+  heroCard: {
     backgroundColor: BLACK_BOX,
     borderRadius: 18,
-    padding: 18,
+    padding: 16,
     marginTop: 20,
   },
   title: {
     color: '#FFFFFF',
     fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 10,
+    fontWeight: '800',
     textAlign: 'center',
+    marginBottom: 8,
   },
-  line: {
+  locationRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+  },
+  locationText: {
     color: '#E2DCD2',
     fontSize: 14,
-    marginBottom: 4,
-  },
-  label: {
     fontWeight: '600',
-    color: '#FFFFFF',
+  },
+
+  // ===== Gallery =====
+  galleryWrap: {
+    marginTop: 6,
+  },
+  galleryItem: {
+    width: SCREEN_W * 0.88,
+    height: GALLERY_H,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  galleryImage: {
+    width: '100%',
+    height: '100%',
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 10,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 8,
+  },
+  dotActive: {
+    backgroundColor: CREAM,
+  },
+  dotInactive: {
+    backgroundColor: '#3B3658',
+  },
+  noImageBox: {
+    height: GALLERY_H,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2C2750',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  noImageText: {
+    color: '#B8B0A5',
+    fontSize: 13,
+    fontStyle: 'italic',
+  },
+
+  // ===== Sections =====
+  sectionHeader: {
+    marginTop: 18,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
   },
   sectionTitle: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 16,
-    marginBottom: 4,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  sectionHint: {
+    color: '#B8B0A5',
+    fontSize: 12,
+    fontStyle: 'italic',
   },
   smallText: {
     color: '#DDD3C8',
     fontSize: 13,
     fontStyle: 'italic',
-  },
-  subCard: {
-    backgroundColor: BLACK_BOX,
-    borderRadius: 14,
-    padding: 12,
     marginTop: 8,
   },
-  cardTitle: {
+
+  // ===== Room cards =====
+  roomCard: {
+    backgroundColor: BLACK_BOX,
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 10,
+  },
+  roomTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  roomName: {
     color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontWeight: '700',
+    flex: 1,
   },
-  cardLine: {
+  pricePill: {
+    borderWidth: 1,
+    borderColor: '#2C2750',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#0A0830',
+  },
+  priceText: {
+    color: CREAM,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  priceTextSmall: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  roomMetaRow: {
+    flexDirection: 'row',
+    gap: 14,
+    marginTop: 10,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  metaText: {
     color: '#E0D9CE',
     fontSize: 13,
+    fontWeight: '600',
   },
-  cardLineSmall: {
+  roomDesc: {
     color: '#B8B0A5',
     fontSize: 12,
-    marginTop: 3,
+    marginTop: 8,
+    lineHeight: 16,
   },
+
+  // ===== Back buttons =====
   backButtonCenter: {
     marginTop: 16,
     paddingHorizontal: 16,
@@ -349,20 +495,43 @@ const styles = StyleSheet.create({
   },
   backText: {
     color: CREAM,
-    fontWeight: '600',
+    fontWeight: '700',
     fontSize: 14,
   },
-  mainImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 12,
-    marginTop: 10,
-    marginBottom: 10,
-  },
-  extraImage: {
-    width: '100%',
-    height: 160,
-    borderRadius: 12,
-    marginBottom: 8,
-  },
+  bookingCtaCard: {
+  backgroundColor: BLACK_BOX,
+  borderRadius: 14,
+  padding: 16,
+  marginTop: 18,
+  borderWidth: 1,
+  borderColor: '#2C2750',
+},
+bookingCtaTitle: {
+  color: '#FFFFFF',
+  fontSize: 16,
+  fontWeight: '800',
+},
+bookingCtaSub: {
+  color: '#B8B0A5',
+  fontSize: 12,
+  marginTop: 6,
+  lineHeight: 16,
+},
+bookingBtn: {
+  marginTop: 12,
+  backgroundColor: '#FFB600', // ✅ same button color you use
+  paddingVertical: 12,
+  borderRadius: 10,
+  alignItems: 'center',
+  flexDirection: 'row',
+  justifyContent: 'center',
+  gap: 8,
+},
+bookingBtnText: {
+  color: '#00113D', // ✅ same text color you use
+  fontSize: 16,
+  fontWeight: '700',
+},
+
+
 });

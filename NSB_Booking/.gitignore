@@ -4,3 +4,20 @@
 
 expo-env.d.ts
 # @end expo-cli
+
+# Ignore env files
+.env
+NSB_Dummy_API/.env
+
+# Ignore uploads folder
+uploads/
+NSB_Dummy_API/uploads/
+
+# env files
+**/.env
+
+# uploads folders
+**/uploads/
+
+# node modules
+**/node_modules/

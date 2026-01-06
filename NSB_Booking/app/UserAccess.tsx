@@ -13,16 +13,14 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { API_URL } from './config';
 
 const NAVY = '#020038';
 const YELLOW = '#FFB600';
 const CREAM = '#FFEBD3';
 const BLACK_BOX = '#050515';
 
-const API_URL =
-  Platform.OS === 'web'
-    ? 'http://localhost:3001'
-    : 'http://192.168.8.109:3001';
+
 
 type User = {
   user_id: number;

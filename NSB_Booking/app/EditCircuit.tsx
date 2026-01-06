@@ -15,6 +15,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_URL } from './config';
 
 type CircuitDetailsResponse = {
   message?: string;
@@ -39,8 +40,7 @@ const BLACK_BOX = '#050515';
 
 type SavingTarget = 'circuit' | 'rooms' | 'images' | null;
 
-const API_URL =
-  Platform.OS === 'web' ? 'http://localhost:3001' : 'http://192.168.8.111:3001';
+
 
 const toFullUrl = (p?: string) => {
   if (!p) return '';

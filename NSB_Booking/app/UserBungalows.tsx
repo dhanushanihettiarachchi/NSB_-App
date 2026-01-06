@@ -10,15 +10,13 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { API_URL } from './config';
 
 const NAVY = '#020038';
 const BLACK_BOX = '#050515';
 const CREAM = '#FFEBD3';
 
-const API_URL =
-  Platform.OS === 'web'
-    ? 'http://localhost:3001'
-    : 'http://192.168.8.111:3001';
+
 
 export default function UserBungalows() {
   const [circuits, setCircuits] = useState<any[]>([]);
@@ -74,11 +72,7 @@ export default function UserBungalows() {
           <Text style={styles.cardLine}>
             {circuit.city} • {circuit.street}
           </Text>
-          {circuit.imagePath && (
-            <Text style={styles.cardLineSmall}>
-              Main image: {circuit.imagePath}
-            </Text>
-          )}
+          
         </TouchableOpacity>
       ))}
     </ScrollView>

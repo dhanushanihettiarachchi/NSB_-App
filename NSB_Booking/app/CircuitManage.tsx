@@ -15,6 +15,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
+import { API_URL } from './config';
 
 type RoomPayload = {
   room_Name: string;
@@ -29,10 +30,6 @@ const YELLOW = '#FFB600';
 const CREAM = '#FFEBD3';
 const BLACK_BOX = '#050515';
 
-const API_URL =
-  Platform.OS === 'web'
-    ? 'http://localhost:3001'
-    : 'http://192.168.8.111:3001';
 
 const toFullUrl = (p?: string) => {
   if (!p) return '';
