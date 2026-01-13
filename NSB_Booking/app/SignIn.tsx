@@ -1,4 +1,4 @@
-import React, { useState } from 'react'; 
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -16,9 +16,6 @@ const NAVY = '#020038';
 const YELLOW = '#FFB600';
 const CREAM = '#FFEBD3';
 const BLACK_BOX = '#050515';
-
-
-
 
 export default function SignInScreen() {
   const [email, setEmail] = useState('');
@@ -46,23 +43,38 @@ export default function SignInScreen() {
       });
 
       const data = await res.json();
-      console.log('Login response >>>', data); // just to check in console
+      console.log('Login response >>>', data);
 
       if (!res.ok) {
         setError(data.message || 'Invalid email or password.');
         return;
       }
 
-      // ⭐️ ROLE BASED NAVIGATION ⭐️
-      const role = data?.user?.role; // this comes from your backend
+      const role = data?.user?.role;
+      const userId = data?.user?.user_id;
 
+      if (!userId) {
+        setError('Login succeeded but userId is missing. Please check backend response.');
+        return;
+      }
+
+      // ⭐️ ROLE BASED NAVIGATION ⭐️
       if (role === 'SuperAdmin') {
-        router.replace('/AdminDashboard');
+        router.replace({
+          pathname: '/AdminDashboard',
+          params: { userId: String(userId) },
+        });
       } else if (role === 'BranchManager') {
-        router.replace('/ManagerDashboard');
+        router.replace({
+          pathname: '/ManagerDashboard',
+          params: { userId: String(userId) },
+        });
       } else {
         // EndUser or anything else
-        router.replace('/UserDashboard');
+        router.replace({
+          pathname: '/UserDashboard',
+          params: { userId: String(userId) }, // ✅ THIS FIXES EVERYTHING
+        });
       }
     } catch (e) {
       console.error(e);
@@ -78,8 +90,8 @@ export default function SignInScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Text style={styles.title}>Sign In to continue</Text>
+
       <View style={styles.card}>
-        {/* Email */}
         <Text style={styles.label}>email</Text>
         <TextInput
           style={styles.input}
@@ -91,7 +103,6 @@ export default function SignInScreen() {
           keyboardType="email-address"
         />
 
-        {/* Password */}
         <Text style={styles.label}>Password</Text>
         <TextInput
           style={styles.input}
@@ -104,10 +115,7 @@ export default function SignInScreen() {
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        <TouchableOpacity
-          style={styles.forgotRow}
-          onPress={() => router.push('/ForgotPassword')}
-        >
+        <TouchableOpacity style={styles.forgotRow} onPress={() => router.push('/ForgotPassword')}>
           <Text style={styles.forgotText}>Forgot Password?</Text>
         </TouchableOpacity>
 
@@ -116,11 +124,7 @@ export default function SignInScreen() {
           onPress={handleSignIn}
           disabled={loading}
         >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Sign In</Text>
-          )}
+          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign In</Text>}
         </TouchableOpacity>
 
         <View style={styles.footerRow}>

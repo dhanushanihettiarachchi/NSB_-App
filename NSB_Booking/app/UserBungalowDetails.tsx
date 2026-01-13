@@ -6,13 +6,13 @@ import {
   StyleSheet,
   ActivityIndicator,
   ScrollView,
-  Platform,
   TouchableOpacity,
   Image,
   FlatList,
   Dimensions,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Alert,
 } from 'react-native';
 
 import { useLocalSearchParams, router } from 'expo-router';
@@ -30,17 +30,19 @@ const NAVY = '#020038';
 const CREAM = '#FFEBD3';
 const BLACK_BOX = '#050515';
 
-
-
 const { width: SCREEN_W } = Dimensions.get('window');
 const GALLERY_H = 230;
 
 const UserBungalowDetailsScreen = () => {
   const params = useLocalSearchParams();
+
   const circuitId =
     (params.circuitId as string) ||
     (params.id as string) ||
     (params.circuit_Id as string);
+
+  // ✅ NEW: get userId from params (forward it to Bookings)
+  const userId = String(params.userId ?? '');
 
   const [data, setData] = useState<CircuitDetailsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -123,15 +125,34 @@ const UserBungalowDetailsScreen = () => {
         <Text style={styles.loadingText}>
           {errorMessage || 'Details not available.'}
         </Text>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButtonCenter}
-        >
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButtonCenter}>
           <Text style={styles.backText}>Go Back</Text>
         </TouchableOpacity>
       </View>
     );
   }
+
+  const goToBookings = () => {
+    // ✅ Guard: userId must exist, otherwise backend will reject booking
+    if (!userId) {
+      Alert.alert(
+        'User not found',
+        'UserId is missing. Please login again and open this page.'
+      );
+      return;
+    }
+
+    router.push({
+      pathname: '/Bookings',
+      params: {
+        circuitId: String(circuit.circuit_Id ?? circuit.circuitId ?? ''),
+        circuitName: String(circuit.circuit_Name ?? ''),
+        city: String(circuit.city ?? ''),
+        street: String(circuit.street ?? ''),
+        userId: userId, // ✅ fixed (no loggedUser)
+      },
+    });
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -210,35 +231,21 @@ const UserBungalowDetailsScreen = () => {
       )}
 
       {/* ===== Ready to Booking CTA ===== */}
-<View style={styles.bookingCtaCard}>
-  <Text style={styles.bookingCtaTitle}>Ready to book this bungalow?</Text>
-  <Text style={styles.bookingCtaSub}>
-    Select your room, dates and submit a booking request.
-  </Text>
+      <View style={styles.bookingCtaCard}>
+        <Text style={styles.bookingCtaTitle}>Ready to book this bungalow?</Text>
+        <Text style={styles.bookingCtaSub}>
+          Select your room, dates and submit a booking request.
+        </Text>
 
-  <TouchableOpacity
-    style={styles.bookingBtn}
-    onPress={() =>
-      router.push({
-        pathname: '/Bookings',
-        params: {
-          circuitId: String(circuit.circuit_Id ?? circuit.circuitId ?? ''),
-          circuitName: String(circuit.circuit_Name ?? ''),
-          city: String(circuit.city ?? ''),
-          street: String(circuit.street ?? ''),
-        },
-      })
-    }
-  >
-    <Ionicons name="calendar-outline" size={18} color="#00113D" />
-    <Text style={styles.bookingBtnText}>Add Booking</Text>
-  </TouchableOpacity>
-</View>
+        <TouchableOpacity style={styles.bookingBtn} onPress={goToBookings}>
+          <Ionicons name="calendar-outline" size={18} color="#00113D" />
+          <Text style={styles.bookingBtnText}>Add Booking</Text>
+        </TouchableOpacity>
+      </View>
 
-<TouchableOpacity onPress={() => router.back()} style={styles.backButtonBottom}>
-  <Text style={styles.backText}>Back</Text>
-</TouchableOpacity>
-
+      <TouchableOpacity onPress={() => router.back()} style={styles.backButtonBottom}>
+        <Text style={styles.backText}>Back</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 };
@@ -272,11 +279,7 @@ function ImageCarousel({ images }: { images: string[] }) {
         decelerationRate="fast"
         renderItem={({ item }) => (
           <View style={styles.galleryItem}>
-            <Image
-              source={{ uri: item }}
-              style={styles.galleryImage}
-              resizeMode="cover"
-            />
+            <Image source={{ uri: item }} style={styles.galleryImage} resizeMode="cover" />
           </View>
         )}
       />
@@ -286,10 +289,7 @@ function ImageCarousel({ images }: { images: string[] }) {
         {images.map((_, i) => (
           <View
             key={i}
-            style={[
-              styles.dot,
-              i === index ? styles.dotActive : styles.dotInactive,
-            ]}
+            style={[styles.dot, i === index ? styles.dotActive : styles.dotInactive]}
           />
         ))}
       </View>
@@ -498,40 +498,40 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 14,
   },
+
+  // ===== Booking CTA =====
   bookingCtaCard: {
-  backgroundColor: BLACK_BOX,
-  borderRadius: 14,
-  padding: 16,
-  marginTop: 18,
-  borderWidth: 1,
-  borderColor: '#2C2750',
-},
-bookingCtaTitle: {
-  color: '#FFFFFF',
-  fontSize: 16,
-  fontWeight: '800',
-},
-bookingCtaSub: {
-  color: '#B8B0A5',
-  fontSize: 12,
-  marginTop: 6,
-  lineHeight: 16,
-},
-bookingBtn: {
-  marginTop: 12,
-  backgroundColor: '#FFB600', // ✅ same button color you use
-  paddingVertical: 12,
-  borderRadius: 10,
-  alignItems: 'center',
-  flexDirection: 'row',
-  justifyContent: 'center',
-  gap: 8,
-},
-bookingBtnText: {
-  color: '#00113D', // ✅ same text color you use
-  fontSize: 16,
-  fontWeight: '700',
-},
-
-
+    backgroundColor: BLACK_BOX,
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 18,
+    borderWidth: 1,
+    borderColor: '#2C2750',
+  },
+  bookingCtaTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  bookingCtaSub: {
+    color: '#B8B0A5',
+    fontSize: 12,
+    marginTop: 6,
+    lineHeight: 16,
+  },
+  bookingBtn: {
+    marginTop: 12,
+    backgroundColor: '#FFB600',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  bookingBtnText: {
+    color: '#00113D',
+    fontSize: 16,
+    fontWeight: '700',
+  },
 });

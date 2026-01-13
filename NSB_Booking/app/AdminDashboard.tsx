@@ -1,12 +1,12 @@
+// app/AdminDashboard.tsx
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 
-export default function ManagerDashboard() {
+export default function AdminDashboard() {
   return (
     <View style={styles.container}>
-      
       {/* Back Button */}
       <TouchableOpacity style={styles.backButton} onPress={() => router.replace('/SignIn')}>
         <Ionicons name="chevron-back" size={28} color="#FFFFFF" />
@@ -15,23 +15,22 @@ export default function ManagerDashboard() {
       <Text style={styles.title}>Super Admin Dashboard</Text>
 
       {/* USER ACCESS MANAGEMENT BUTTON */}
-      <TouchableOpacity 
-        style={styles.menuButton}
-        onPress={() => router.push('/UserAccess')}
-      >
+      <TouchableOpacity style={styles.menuButton} onPress={() => router.push('/UserAccess')}>
         <Ionicons name="people" size={24} color="#00113D" style={{ marginRight: 8 }} />
         <Text style={styles.menuText}>Manage User Access</Text>
       </TouchableOpacity>
 
       {/* CIRCUIT MANAGEMENT BUTTON */}
-      <TouchableOpacity 
-        style={styles.menuButton}
-        onPress={() => router.push('/CircuitManage')}   // <-- Navigate to circuit manage screen
-      >
+      <TouchableOpacity style={styles.menuButton} onPress={() => router.push('/CircuitManage')}>
         <Ionicons name="home" size={24} color="#00113D" style={{ marginRight: 8 }} />
         <Text style={styles.menuText}>Manage Circuit Bungalows</Text>
       </TouchableOpacity>
 
+      {/* ✅ RESERVATIONS BUTTON */}
+      <TouchableOpacity style={styles.menuButton} onPress={() => router.push('/AdminReservations')}>
+        <Ionicons name="calendar" size={24} color="#00113D" style={{ marginRight: 8 }} />
+        <Text style={styles.menuText}>See All Reservations</Text>
+      </TouchableOpacity>
     </View>
   );
 }

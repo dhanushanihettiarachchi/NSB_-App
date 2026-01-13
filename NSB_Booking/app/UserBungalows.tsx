@@ -6,9 +6,9 @@ import {
   ActivityIndicator,
   ScrollView,
   TouchableOpacity,
-  Platform,
+  Alert,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { API_URL } from './config';
 
@@ -16,9 +16,10 @@ const NAVY = '#020038';
 const BLACK_BOX = '#050515';
 const CREAM = '#FFEBD3';
 
-
-
 export default function UserBungalows() {
+  const params = useLocalSearchParams();
+  const userId = String(params.userId ?? ''); // ✅ receive from dashboard
+
   const [circuits, setCircuits] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -27,7 +28,7 @@ export default function UserBungalows() {
       setLoading(true);
       const res = await fetch(`${API_URL}/circuits`);
       const data = await res.json();
-      setCircuits(data);
+      setCircuits(Array.isArray(data) ? data : []);
     } catch (err) {
       console.log('Error loading circuits for user:', err);
     } finally {
@@ -39,13 +40,25 @@ export default function UserBungalows() {
     fetchCircuits();
   }, []);
 
+  const openDetails = (circuit: any) => {
+    if (!userId) {
+      Alert.alert('User not found', 'UserId is missing. Please login again.');
+      return;
+    }
+
+    router.push({
+      pathname: '/UserBungalowDetails',
+      params: {
+        circuitId: String(circuit.circuit_Id),
+        userId: userId, // ✅ IMPORTANT: forward userId
+      },
+    });
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* back arrow to UserDashboard */}
-      <TouchableOpacity
-        style={styles.headerBack}
-        onPress={() => router.back()}
-      >
+      {/* back arrow */}
+      <TouchableOpacity style={styles.headerBack} onPress={() => router.back()}>
         <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
       </TouchableOpacity>
 
@@ -61,18 +74,13 @@ export default function UserBungalows() {
         <TouchableOpacity
           key={circuit.circuit_Id}
           style={styles.card}
-          onPress={() =>
-            router.push({
-              pathname: '/UserBungalowDetails',
-              params: { circuitId: String(circuit.circuit_Id) }, // 👈 IMPORTANT
-            })
-          }
+          onPress={() => openDetails(circuit)}
+          activeOpacity={0.9}
         >
           <Text style={styles.cardTitle}>{circuit.circuit_Name}</Text>
           <Text style={styles.cardLine}>
             {circuit.city} • {circuit.street}
           </Text>
-          
         </TouchableOpacity>
       ))}
     </ScrollView>
@@ -123,10 +131,5 @@ const styles = StyleSheet.create({
   cardLine: {
     color: '#E0DBD3',
     fontSize: 13,
-  },
-  cardLineSmall: {
-    color: '#B8B0A5',
-    fontSize: 12,
-    marginTop: 2,
   },
 });
