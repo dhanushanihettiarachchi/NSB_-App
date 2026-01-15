@@ -9,12 +9,12 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
-  Alert,
   Modal,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Calendar } from 'react-native-calendars';
 import { API_URL } from './config';
 import { useBookingDraft } from './context/BookingDraftContext';
 
@@ -29,9 +29,9 @@ type Room = {
 type BlockedRange = {
   booking_id: number;
   circuit_id: number;
-  check_in_date: string;
-  check_out_date: string;
-  booking_time?: string | null;
+  check_in_date: string;  // YYYY-MM-DD
+  check_out_date: string; // YYYY-MM-DD
+  booking_time?: string | null; // "HH:mm" or null
   status: string; // Approved
 };
 
@@ -56,6 +56,25 @@ const formatDateYYYYMMDD = (d: Date) =>
   `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const formatTimeHHMM = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 
+// ✅ Convert SQL booking_time to "HH:mm" safely (supports string / Date)
+const normalizeBookingTimeHHMM = (t: any, fallback: string = '10:00') => {
+  if (!t) return fallback;
+
+  // Case 1: "08:15" or "08:15:00.0000000"
+  if (typeof t === 'string') {
+    const m = t.match(/(\d{2}):(\d{2})/);
+    return m ? `${m[1]}:${m[2]}` : fallback;
+  }
+
+  // Case 2: JS Date object (some drivers serialize SQL time as Date)
+  if (t instanceof Date && !Number.isNaN(t.getTime())) {
+    return `${pad2(t.getHours())}:${pad2(t.getMinutes())}`;
+  }
+
+  return fallback;
+};
+
+
 const parseYYYYMMDD = (s: string) => {
   if (!s) return null;
   const [y, m, d] = s.split('-').map((x) => parseInt(x, 10));
@@ -74,7 +93,38 @@ const diffNights = (checkInStr: string, checkOutStr: string) => {
   return nights > 0 ? nights : 0;
 };
 
-// web input styles (react-datepicker custom input)
+// build datetime using date "YYYY-MM-DD" and time "HH:mm" (default 10:00)
+const buildDT = (dateStr: string, timeStr?: string | null) => {
+  const d = String(dateStr || '').slice(0, 10);
+  const t = (String(timeStr || '') || '10:00').slice(0, 5);
+  return new Date(`${d}T${t}:00`);
+};
+
+// ✅ Overlap check: [oldStart, oldEnd) with rule newStart < oldEnd && newEnd > oldStart
+const overlapsApproved = (
+  newCheckIn: string,
+  newCheckOut: string,
+  newTime: string | null,
+  blocked: BlockedRange[]
+) => {
+  if (!newCheckIn || !newCheckOut) return false;
+
+  const newStart = buildDT(newCheckIn, newTime || '10:00');
+  const newEnd = buildDT(newCheckOut, newTime || '10:00');
+  if (Number.isNaN(newStart.getTime()) || Number.isNaN(newEnd.getTime())) return false;
+
+  return blocked.some((b) => {
+    if (String(b.status || '').toLowerCase() !== 'approved') return false;
+    const oldStart = buildDT(b.check_in_date, normalizeBookingTimeHHMM(b.booking_time, '10:00'));
+    const oldEnd = buildDT(b.check_out_date, normalizeBookingTimeHHMM(b.booking_time, '10:00'));
+
+
+    // ✅ [start, end) style overlap
+    return oldStart < newEnd && oldEnd > newStart;
+  });
+};
+
+// ✅ web input style
 const webInputStyle: any =
   Platform.OS === 'web'
     ? {
@@ -93,7 +143,7 @@ const webInputStyle: any =
       }
     : {};
 
-// ✅ Label with “Required” badge
+// ✅ Label
 function Label({ text, required }: { text: string; required?: boolean }) {
   return (
     <View style={styles.labelRow}>
@@ -107,63 +157,56 @@ function Label({ text, required }: { text: string; required?: boolean }) {
   );
 }
 
-// ---------- overlap helpers (UI blocking) ----------
-// Build a datetime using date string "YYYY-MM-DD" and time "HH:mm" (default 10:00)
-const buildDT = (dateStr: string, timeStr?: string | null) => {
-  const d = String(dateStr || '').slice(0, 10);
-  const t = (String(timeStr || '') || '10:00').slice(0, 5);
-  // keep it simple: local time
-  return new Date(`${d}T${t}:00`);
+// ------- date utils for blocking days -------
+const addDays = (d: Date, n: number) => {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
 };
 
-// ✅ Overlap check: newStart < oldEnd && newEnd > oldStart
-const overlapsApproved = (
-  newCheckIn: string,
-  newCheckOut: string,
-  newTime: string | null,
-  blocked: BlockedRange[]
-) => {
-  if (!newCheckIn || !newCheckOut) return false;
-  const newStart = buildDT(newCheckIn, newTime || '10:00');
-  const newEnd = buildDT(newCheckOut, newTime || '10:00');
-  if (Number.isNaN(newStart.getTime()) || Number.isNaN(newEnd.getTime())) return false;
+// build date string list [start, end) day by day (end excluded)
+const daysBetweenExclusiveEnd = (startStr: string, endStr: string) => {
+  const start = parseYYYYMMDD(startStr);
+  const end = parseYYYYMMDD(endStr);
+  if (!start || !end) return [];
+  const out: string[] = [];
 
-  return blocked.some((b) => {
-    if (String(b.status || '').toLowerCase() !== 'approved') return false;
-    const oldStart = buildDT(b.check_in_date, b.booking_time || '10:00');
-    const oldEnd = buildDT(b.check_out_date, b.booking_time || '10:00');
-    if (Number.isNaN(oldStart.getTime()) || Number.isNaN(oldEnd.getTime())) return false;
-    return oldStart < newEnd && oldEnd > newStart;
-  });
-};
+  // normalize to midnight
+  let cur = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, 0, 0, 0);
+  const endMid = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 0, 0, 0, 0);
 
-// return true if a single date is inside any approved range (for disabling)
-const dateInsideApprovedRange = (dateStr: string, blocked: BlockedRange[]) => {
-  const d = parseYYYYMMDD(dateStr);
-  if (!d) return false;
-  const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-  const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-
-  return blocked.some((b) => {
-    if (String(b.status || '').toLowerCase() !== 'approved') return false;
-    const oldStart = buildDT(b.check_in_date, b.booking_time || '10:00');
-    const oldEnd = buildDT(b.check_out_date, b.booking_time || '10:00');
-    return oldStart < dayEnd && oldEnd > dayStart;
-  });
-};
-
-// ✅ Web (react-datepicker): excludeDates expects Date[]
-const buildExcludeDates = (blocked: BlockedRange[]) => {
-  // Generate dates for the next 365 days and exclude if inside approved
-  const out: Date[] = [];
-  const today = new Date();
-  for (let i = 0; i < 365; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    const ds = formatDateYYYYMMDD(d);
-    if (dateInsideApprovedRange(ds, blocked)) out.push(d);
+  while (cur < endMid) {
+    out.push(formatDateYYYYMMDD(cur));
+    cur = addDays(cur, 1);
   }
   return out;
+};
+
+// checkout-day min time map: date -> latest checkout time on that date
+const buildCheckoutMinTimeMap = (blocked: BlockedRange[]) => {
+  const map: Record<string, string> = {};
+  blocked.forEach((b) => {
+    if (String(b.status || '').toLowerCase() !== 'approved') return;
+    const day = String(b.check_out_date || '').slice(0, 10);
+    const t = normalizeBookingTimeHHMM(b.booking_time, '10:00');
+
+
+
+    // keep LATEST
+    if (!map[day] || t > map[day]) map[day] = t;
+  });
+  return map;
+};
+
+// blocked days set = all days from check_in to day before check_out
+const buildBlockedDaysSet = (blocked: BlockedRange[]) => {
+  const s = new Set<string>();
+  blocked.forEach((b) => {
+    if (String(b.status || '').toLowerCase() !== 'approved') return;
+    const days = daysBetweenExclusiveEnd(String(b.check_in_date).slice(0, 10), String(b.check_out_date).slice(0, 10));
+    days.forEach((d) => s.add(d));
+  });
+  return s;
 };
 
 export default function Bookings() {
@@ -193,18 +236,31 @@ export default function Bookings() {
   const [selectedRoomQty, setSelectedRoomQty] = useState<Record<number, number>>({});
   const [guestsByRoom, setGuestsByRoom] = useState<Record<number, number>>({});
 
-  // Dropdowns
+  // Dropdown
   const [roomPickerOpen, setRoomPickerOpen] = useState(false);
 
-  // Mobile picker modal
+  // Picker modal
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
   const [pickerTarget, setPickerTarget] = useState<'checkIn' | 'checkOut' | 'time'>('checkIn');
   const [tempPickerValue, setTempPickerValue] = useState<Date>(new Date());
 
-  // ✅ Approved blocked ranges for this circuit (from backend)
+  // ✅ blocked ranges approved
   const [blocked, setBlocked] = useState<BlockedRange[]>([]);
   const [loadingBlocked, setLoadingBlocked] = useState(false);
+
+  // ✅ UI banner + center popup
+  const [uiError, setUiError] = useState('');
+  const [popupVisible, setPopupVisible] = useState(false);
+  const [popupMessage, setPopupMessage] = useState('');
+
+  const showUiError = (msg: string) => {
+    setUiError(msg);
+    setPopupMessage(msg);
+    setPopupVisible(true);
+    setTimeout(() => setPopupVisible(false), 2600);
+    setTimeout(() => setUiError(''), 6000);
+  };
 
   const clearForm = () => {
     setCheckIn('');
@@ -236,7 +292,7 @@ export default function Bookings() {
     load();
   }, [circuitId]);
 
-  // ✅ Load approved blocked date ranges for this circuit
+  // ✅ Load blocked approved ranges (from backend)
   useEffect(() => {
     const loadBlocked = async () => {
       if (!circuitId) return;
@@ -256,7 +312,16 @@ export default function Bookings() {
     loadBlocked();
   }, [circuitId]);
 
-  // ---- computed ----
+  const blockedDaysSet = useMemo(() => buildBlockedDaysSet(blocked), [blocked]);
+  const checkoutMinTimeMap = useMemo(() => buildCheckoutMinTimeMap(blocked), [blocked]);
+
+  // ✅ for selected check-in day, if it is a checkout day, enforce min time
+  const minTimeForSelectedCheckIn = useMemo(() => {
+    if (!checkIn) return null;
+    return checkoutMinTimeMap[checkIn] || null; // "08:00"
+  }, [checkIn, checkoutMinTimeMap]);
+
+  // computed
   const nights = useMemo(() => diffNights(checkIn, checkOut), [checkIn, checkOut]);
 
   const selectedRoomsList = useMemo(() => {
@@ -301,8 +366,22 @@ export default function Bookings() {
     [perRoomTotals]
   );
 
-  // ✅ Web: compute excluded dates list
-  const webExcludeDates = useMemo(() => buildExcludeDates(blocked), [blocked]);
+  // ✅ Web: disable days
+  const isWebDayDisabled = (date: Date) => {
+    const ds = formatDateYYYYMMDD(date);
+    return blockedDaysSet.has(ds);
+  };
+
+  // ✅ Web: make list of excluded dates (next 365)
+  const webExcludeDates = useMemo(() => {
+    const out: Date[] = [];
+    const today = new Date();
+    for (let i = 0; i < 365; i++) {
+      const d = addDays(today, i);
+      if (isWebDayDisabled(d)) out.push(d);
+    }
+    return out;
+  }, [blockedDaysSet]);
 
   // ---- actions ----
   const addRoomType = (roomId: number) => {
@@ -313,7 +392,6 @@ export default function Bookings() {
       if (prev[roomId] && prev[roomId] > 0) return prev;
       return { ...prev, [roomId]: 1 };
     });
-
     setGuestsByRoom((prev) => ({ ...prev, [roomId]: prev[roomId] ?? 0 }));
     setRoomPickerOpen(false);
   };
@@ -322,9 +400,7 @@ export default function Bookings() {
     setSelectedRoomQty((prev) => {
       const current = prev[room.room_Id] || 0;
       const next = Math.min(room.room_Count, current + 1);
-      if (next === current) {
-        Alert.alert('Limit reached', `Only ${room.room_Count} rooms available for Room ${room.room_Name}.`);
-      }
+      if (next === current) showUiError(`Only ${room.room_Count} rooms available for Room ${room.room_Name}.`);
       return { ...prev, [room.room_Id]: next };
     });
   };
@@ -361,7 +437,7 @@ export default function Bookings() {
     const cap = qty * room.max_Persons;
 
     if (safe > cap) {
-      Alert.alert('Capacity', `Max guests for Room ${room.room_Name} is ${cap} (based on selected rooms).`);
+      showUiError(`Max guests for Room ${room.room_Name} is ${cap} (based on selected rooms).`);
       setGuestsByRoom((prev) => ({ ...prev, [room.room_Id]: cap }));
       return;
     }
@@ -372,13 +448,6 @@ export default function Bookings() {
   const openDatePicker = (target: 'checkIn' | 'checkOut') => {
     setPickerTarget(target);
     setPickerMode('date');
-
-    const base =
-      target === 'checkIn'
-        ? parseYYYYMMDD(checkIn) ?? new Date()
-        : parseYYYYMMDD(checkOut) ?? (parseYYYYMMDD(checkIn) ?? new Date());
-
-    setTempPickerValue(base);
     setPickerOpen(true);
   };
 
@@ -389,97 +458,56 @@ export default function Bookings() {
     setPickerOpen(true);
   };
 
-  const applyPickerValue = () => {
-    if (pickerTarget === 'time') {
-      const nextTime = formatTimeHHMM(tempPickerValue);
+  // ✅ validate checkout-day min time
+  const validateMinTimeRule = (dateStr: string, timeStr: string) => {
+    const minT = checkoutMinTimeMap[dateStr];
+    if (minT && timeStr && timeStr < minT) {
+      showUiError(`After ${minT} you can check in.`);
+      return false;
+    }
+    return true;
+  };
 
-      // if user already selected dates, validate overlap immediately
-      if (checkIn && checkOut && overlapsApproved(checkIn, checkOut, nextTime, blocked)) {
-        Alert.alert(
-          'Not available',
-          'That time overlaps an approved booking. Please select another date/time.'
-        );
+  const applyTimePicker = () => {
+    const nextTime = formatTimeHHMM(tempPickerValue);
+
+    // ✅ if check-in is a checkout-day, enforce min time
+    if (checkIn) {
+      if (!validateMinTimeRule(checkIn, nextTime)) {
         setPickerOpen(false);
         return;
       }
+    }
 
-      setBookingTime(nextTime);
+    // ✅ also validate overlap if dates are set
+    const time = nextTime || '10:00';
+    if (checkIn && checkOut && overlapsApproved(checkIn, checkOut, time, blocked)) {
+      showUiError('Selected date/time overlaps an approved booking. Please select another date/time.');
       setPickerOpen(false);
       return;
     }
 
-    const picked = formatDateYYYYMMDD(tempPickerValue);
-
-    // ✅ block picking dates that are inside approved ranges (UI)
-    if (dateInsideApprovedRange(picked, blocked)) {
-      Alert.alert('Not available', 'This date is already booked (approved). Please select another date.');
-      setPickerOpen(false);
-      return;
-    }
-
-    if (pickerTarget === 'checkIn') {
-      setCheckIn(picked);
-      if (!checkOut || checkOut <= picked) {
-        const next = new Date(tempPickerValue);
-        next.setDate(next.getDate() + 1);
-        const nextStr = formatDateYYYYMMDD(next);
-
-        // If auto next day is blocked, still set but warn user
-        if (dateInsideApprovedRange(nextStr, blocked)) {
-          setCheckOut(nextStr);
-          Alert.alert(
-            'Warning',
-            'Your automatic check-out day is already booked. Please change check-out date.'
-          );
-        } else {
-          setCheckOut(nextStr);
-        }
-      }
-      setPickerOpen(false);
-      return;
-    }
-
-    if (pickerTarget === 'checkOut') {
-      // must be after check-in
-      if (checkIn && picked <= checkIn) {
-        Alert.alert('Invalid', 'Check-out must be after check-in.');
-        setPickerOpen(false);
-        return;
-      }
-
-      // Validate full range overlap when setting checkout
-      const time = bookingTime || '10:00';
-      if (checkIn && overlapsApproved(checkIn, picked, time, blocked)) {
-        Alert.alert(
-          'Not available',
-          'This stay overlaps an approved booking. Please change dates.'
-        );
-        setPickerOpen(false);
-        return;
-      }
-
-      setCheckOut(picked);
-      setPickerOpen(false);
-      return;
-    }
-
+    setBookingTime(nextTime);
     setPickerOpen(false);
   };
 
   // ---- validation ----
   const validate = () => {
-    if (selectedRoomsList.length === 0) return 'Please add at least one room type.';
     if (!checkIn) return 'Please select check-in date.';
     if (!checkOut) return 'Please select check-out date.';
     if (checkOut <= checkIn) return 'Check-out date must be after check-in date.';
     if (!nights) return 'Please select valid dates (at least 1 night).';
 
-    // ✅ ensure range does not overlap approved bookings (UI level)
+    // ✅ enforce min time rule if applicable
     const time = bookingTime || '10:00';
+    if (!validateMinTimeRule(checkIn, time)) return 'Please select a valid time.';
+
+    // ✅ ensure range does not overlap approved bookings
     if (overlapsApproved(checkIn, checkOut, time, blocked)) {
-      return 'Selected date/time overlaps an approved booking. Please select another date.';
+      return 'Selected date/time overlaps an approved booking. Please select another date/time.';
     }
 
+    if (selectedRoomsList.length === 0) return 'Please add at least one room type.';
     if (totalGuestsNum <= 0) return 'Please enter guests for at least one selected room type.';
     if (totalGuestsNum > totalCapacity) {
       return `Not enough capacity. Selected rooms can host ${totalCapacity}, but you entered ${totalGuestsNum} guests.`;
@@ -489,18 +517,15 @@ export default function Bookings() {
   };
 
   /**
-   * ✅ ACTION 1: Submit booking now (Pending) and pay later
+   * Submit booking (Pay later)
    */
   const submitBookingPayLater = async () => {
     const err = validate();
-    if (err) return Alert.alert('Validation', err);
+    if (err) return showUiError(err);
 
-    if (!userId) {
-      Alert.alert('Error', 'User not logged in');
-      return;
-    }
-
+    if (!userId) return showUiError('User not logged in');
     if (submitting) return;
+
     setSubmitting(true);
 
     const payload = {
@@ -520,50 +545,36 @@ export default function Bookings() {
     try {
       const res = await fetch(`${API_URL}/bookings`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': String(userId),
-        },
+        headers: { 'Content-Type': 'application/json', 'x-user-id': String(userId) },
         body: JSON.stringify(payload),
       });
 
       const data = await res.json().catch(() => ({}));
-
       if (!res.ok) {
-        Alert.alert('Booking Failed', data?.message || 'Server error');
+        showUiError(data?.message || 'Booking Failed');
         return;
       }
 
       clearForm();
-
-      Alert.alert(
-        'Booking Submitted ✅',
-        'Your booking request is saved as Pending.\nYou can upload payment slip later from your bookings list.'
-      );
-    } catch (err) {
-      console.error('Submit booking error:', err);
-      Alert.alert('Error', 'Unable to submit booking');
+      showUiError('Booking submitted ✅ (Pending). You can upload payment slip later.');
+    } catch (e) {
+      console.log(e);
+      showUiError('Unable to submit booking');
     } finally {
       setSubmitting(false);
     }
   };
 
   /**
-   * ✅ ACTION 2: Continue to Payment
-   * Creates booking first, then navigates to UploadSlip with bookingId + amount
+   * Continue to payment
    */
   const continueToPaymentNow = async () => {
-    console.log('ContinueToPayment clicked', { userId, circuitId, checkIn, checkOut, nights, grandTotal });
-
     const err = validate();
-    if (err) return Alert.alert('Validation', err);
+    if (err) return showUiError(err);
 
-    if (!userId) {
-      Alert.alert('Error', 'User not logged in');
-      return;
-    }
-
+    if (!userId) return showUiError('User not logged in');
     if (submitting) return;
+
     setSubmitting(true);
 
     const payload = {
@@ -583,34 +594,20 @@ export default function Bookings() {
     try {
       const res = await fetch(`${API_URL}/bookings`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': String(userId),
-        },
+        headers: { 'Content-Type': 'application/json', 'x-user-id': String(userId) },
         body: JSON.stringify(payload),
       });
 
       const data = await res.json().catch(() => ({}));
-      console.log('POST /bookings response', { ok: res.ok, status: res.status, data });
-
       if (!res.ok) {
-        Alert.alert('Booking Failed', data?.message || 'Server error');
+        showUiError(data?.message || 'Booking Failed');
         return;
       }
 
-      // ✅ get booking ids from backend
       const booking_ids: number[] = Array.isArray(data?.booking_ids) ? data.booking_ids : [];
       const bookingId = booking_ids[0] ? Number(booking_ids[0]) : 0;
+      if (!bookingId) return showUiError('Booking created but booking_ids not returned.');
 
-      if (!bookingId) {
-        Alert.alert(
-          'Backend error',
-          'Booking created but booking_ids not returned.\nFix backend POST /bookings to return { booking_ids: [...] }'
-        );
-        return;
-      }
-
-      // ✅ store draft (UploadSlip reads it)
       const draftItems = selectedRoomsList.map(({ room, qty }) => ({
         room_id: room.room_Id,
         room_name: room.room_Name,
@@ -640,31 +637,131 @@ export default function Bookings() {
         paymentProofUploaded: false,
       });
 
-      // ✅ go to upload slip now
       router.push({
         pathname: '/UploadSlip',
-        params: {
-          userId: String(userId),
-          bookingId: String(bookingId),
-          amount: String(grandTotal),
-        },
+        params: { userId: String(userId), bookingId: String(bookingId), amount: String(grandTotal) },
       });
 
       clearForm();
     } catch (e) {
-      console.log('ContinueToPayment error:', e);
-      Alert.alert('Error', 'Unable to continue to payment');
+      console.log(e);
+      showUiError('Unable to continue to payment');
     } finally {
       setSubmitting(false);
     }
   };
 
-  // web date helpers
+  // ✅ build marked dates for mobile calendar
+  const markedDatesForMobile = useMemo(() => {
+    const marked: any = {};
+
+    // mark blocked days (red + disabled)
+    blockedDaysSet.forEach((d) => {
+      marked[d] = {
+        disabled: true,
+        disableTouchEvent: true,
+        customStyles: {
+          container: { backgroundColor: '#B00020', borderRadius: 8, opacity: 0.35 },
+          text: { color: '#fff', fontWeight: '700' },
+        },
+      };
+    });
+
+    // mark checkout-days (yellow border) - selectable
+    Object.keys(checkoutMinTimeMap).forEach((d) => {
+      if (!marked[d]) marked[d] = {};
+      marked[d] = {
+        ...marked[d],
+        customStyles: {
+          ...(marked[d]?.customStyles || {}),
+          container: {
+            ...(marked[d]?.customStyles?.container || {}),
+            borderWidth: 2,
+            borderColor: '#FFB600',
+          },
+        },
+      };
+    });
+
+    // selected checkIn/checkOut highlight
+    if (checkIn) {
+      marked[checkIn] = {
+        ...(marked[checkIn] || {}),
+        selected: true,
+        selectedColor: '#FFB600',
+        customStyles: {
+          ...(marked[checkIn]?.customStyles || {}),
+          container: { backgroundColor: '#FFB600', borderRadius: 8 },
+          text: { color: '#00113D', fontWeight: '900' },
+        },
+      };
+    }
+    if (checkOut) {
+      marked[checkOut] = {
+        ...(marked[checkOut] || {}),
+        selected: true,
+        selectedColor: '#2C2750',
+        customStyles: {
+          ...(marked[checkOut]?.customStyles || {}),
+          container: { backgroundColor: '#2C2750', borderRadius: 8 },
+          text: { color: '#fff', fontWeight: '900' },
+        },
+      };
+    }
+
+    return marked;
+  }, [blockedDaysSet, checkoutMinTimeMap, checkIn, checkOut]);
+
+  // web helpers
   const webSelected = (s: string) => parseYYYYMMDD(s);
-  const webSetDate =
-    (setter: (v: string) => void) =>
-    (d: Date | null) =>
-      setter(d ? formatDateYYYYMMDD(d) : '');
+
+  // web set date handlers with disable rule
+  const setCheckInWeb = (d: Date | null) => {
+    if (!d) return setCheckIn('');
+    const picked = formatDateYYYYMMDD(d);
+    if (blockedDaysSet.has(picked)) {
+      showUiError('This date is already booked (Approved). Please select another date.');
+      return;
+    }
+    setCheckIn(picked);
+
+    // auto checkOut next day
+    if (!checkOut || checkOut <= picked) {
+      const next = addDays(d, 1);
+      const nextStr = formatDateYYYYMMDD(next);
+      setCheckOut(nextStr);
+    }
+
+    // reset rooms selection when changing dates
+    setSelectedRoomQty({});
+    setGuestsByRoom({});
+  };
+
+  const setCheckOutWeb = (d: Date | null) => {
+    if (!d) return setCheckOut('');
+    const picked = formatDateYYYYMMDD(d);
+    if (checkIn && picked <= checkIn) {
+      showUiError('Check-out must be after check-in.');
+      return;
+    }
+    if (blockedDaysSet.has(picked)) {
+      // NOTE: checkout day itself might be in blockedDaysSet only if some other booking blocks it
+      showUiError('This date is already booked (Approved). Please select another date.');
+      return;
+    }
+
+    // full overlap check
+    const time = bookingTime || '10:00';
+    if (checkIn && overlapsApproved(checkIn, picked, time, blocked)) {
+      showUiError('This stay overlaps an approved booking. Please change dates/time.');
+      return;
+    }
+
+    setCheckOut(picked);
+
+    setSelectedRoomQty({});
+    setGuestsByRoom({});
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -686,7 +783,6 @@ export default function Bookings() {
       <View style={styles.formCard}>
         <Text style={styles.formTitle}>Booking Details</Text>
 
-        {/* ✅ show blocked loading */}
         {(loadingBlocked && (
           <View style={{ marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <ActivityIndicator color="#fff" />
@@ -694,126 +790,23 @@ export default function Bookings() {
           </View>
         )) || null}
 
-        {/* Room dropdown */}
-        <Label text="Room Types" required />
-        {loadingRooms ? (
-          <ActivityIndicator color="#fff" />
-        ) : rooms.length === 0 ? (
-          <Text style={styles.hint}>No rooms available.</Text>
-        ) : (
-          <>
-            <TouchableOpacity
-              style={styles.dropdown}
-              onPress={() => setRoomPickerOpen((v) => !v)}
-              activeOpacity={0.9}
-            >
-              <Text style={styles.dropdownText}>
-                {selectedRoomsList.length === 0 ? 'Select room type(s)' : 'Add another room type'}
-              </Text>
-              <Ionicons
-                name={roomPickerOpen ? 'chevron-up' : 'chevron-down'}
-                size={18}
-                color={BTN_TEXT}
-              />
-            </TouchableOpacity>
+        {/* Error banner */}
+        {uiError ? (
+          <View style={styles.errorBanner}>
+            <Ionicons name="alert-circle" size={18} color="#fff" />
+            <Text style={styles.errorBannerText}>{uiError}</Text>
+          </View>
+        ) : null}
 
-            {roomPickerOpen && (
-              <View style={styles.dropdownPanel}>
-                {rooms
-                  .filter((r) => !selectedRoomQty[r.room_Id])
-                  .map((r) => (
-                    <TouchableOpacity
-                      key={r.room_Id}
-                      style={styles.dropdownItem}
-                      onPress={() => addRoomType(r.room_Id)}
-                    >
-                      <Text style={styles.dropdownItemTitle}>Room {r.room_Name}</Text>
-                      <Text style={styles.dropdownItemSub}>
-                        Available {r.room_Count} • Max/room {r.max_Persons} • Rs {r.price_per_person}/person
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+        {/* ✅ ORDER: Dates -> Time -> Rooms */}
 
-                {rooms.filter((r) => !selectedRoomQty[r.room_Id]).length === 0 && (
-                  <Text style={styles.hint}>All room types are already added.</Text>
-                )}
-              </View>
-            )}
-
-            {selectedRoomsList.length > 0 && (
-              <View style={{ marginTop: 12, gap: 10 }}>
-                {selectedRoomsList.map(({ room, qty }) => {
-                  const cap = qty * room.max_Persons;
-                  return (
-                    <View key={room.room_Id} style={styles.selectedRoomRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.selectedRoomTitle}>Room {room.room_Name}</Text>
-                        <Text style={styles.selectedRoomSub}>
-                          Available {room.room_Count} • Max/room {room.max_Persons} • Rs {room.price_per_person}/person
-                        </Text>
-                      </View>
-
-                      <View style={styles.stepper}>
-                        <TouchableOpacity
-                          style={[styles.stepBtnCream, qty === 0 && { opacity: 0.6 }]}
-                          onPress={() => decQty(room)}
-                          disabled={qty === 0}
-                          activeOpacity={0.85}
-                        >
-                          <Ionicons name="remove" size={18} color={BTN_TEXT} />
-                        </TouchableOpacity>
-
-                        <View style={styles.stepCount}>
-                          <Text style={styles.stepCountText}>{qty}</Text>
-                        </View>
-
-                        <TouchableOpacity style={styles.stepBtnCream} onPress={() => incQty(room)} activeOpacity={0.85}>
-                          <Ionicons name="add" size={18} color={BTN_TEXT} />
-                        </TouchableOpacity>
-                      </View>
-
-                      <View style={{ marginTop: 10, width: '100%' }}>
-                        <Label text={`Guests in ${room.room_Name}`} required />
-                        <Text style={styles.smallHint}>Max {cap} (based on selected rooms)</Text>
-
-                        <TextInput
-                          style={styles.input}
-                          keyboardType="number-pad"
-                          value={String(guestsByRoom[room.room_Id] ?? 0)}
-                          onChangeText={(v) => setGuestsForRoom(room, v, qty)}
-                        />
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-          </>
-        )}
-
-        {/* Dates */}
+        {/* Check-in Date */}
         <Label text="Check-in Date" required />
         {Platform.OS === 'web' ? (
           WebDatePicker ? (
             <WebDatePicker
               selected={webSelected(checkIn)}
-              onChange={(d: Date | null) => {
-                const picked = d ? formatDateYYYYMMDD(d) : '';
-
-                if (picked && dateInsideApprovedRange(picked, blocked)) {
-                  Alert.alert('Not available', 'This date is already booked (approved). Please select another date.');
-                  return;
-                }
-
-                setCheckIn(picked);
-
-                if (d) {
-                  const next = new Date(d);
-                  next.setDate(next.getDate() + 1);
-                  const nextStr = formatDateYYYYMMDD(next);
-                  if (!checkOut || checkOut <= picked) setCheckOut(nextStr);
-                }
-              }}
+              onChange={setCheckInWeb}
               minDate={new Date()}
               dateFormat="yyyy-MM-dd"
               placeholderText="Select a date"
@@ -830,28 +823,13 @@ export default function Bookings() {
           </TouchableOpacity>
         )}
 
+        {/* Check-out Date */}
         <Label text="Check-out Date" required />
         {Platform.OS === 'web' ? (
           WebDatePicker ? (
             <WebDatePicker
               selected={webSelected(checkOut)}
-              onChange={(d: Date | null) => {
-                const picked = d ? formatDateYYYYMMDD(d) : '';
-
-                if (picked && dateInsideApprovedRange(picked, blocked)) {
-                  Alert.alert('Not available', 'This date is already booked (approved). Please select another date.');
-                  return;
-                }
-
-                // full range overlap check
-                const time = bookingTime || '10:00';
-                if (checkIn && picked && overlapsApproved(checkIn, picked, time, blocked)) {
-                  Alert.alert('Not available', 'This stay overlaps an approved booking. Please change dates.');
-                  return;
-                }
-
-                setCheckOut(picked);
-              }}
+              onChange={setCheckOutWeb}
               minDate={
                 checkIn
                   ? (() => {
@@ -894,14 +872,13 @@ export default function Bookings() {
               }
               onChange={(d: Date | null) => {
                 const nextTime = d ? formatTimeHHMM(d) : '';
+                if (checkIn && !validateMinTimeRule(checkIn, nextTime || '10:00')) return;
 
-                // If dates selected, block time selection if overlap
                 const time = nextTime || '10:00';
                 if (checkIn && checkOut && overlapsApproved(checkIn, checkOut, time, blocked)) {
-                  Alert.alert('Not available', 'That time overlaps an approved booking. Please choose another.');
+                  showUiError('Selected date/time overlaps an approved booking. Please select another.');
                   return;
                 }
-
                 setBookingTime(nextTime);
               }}
               showTimeSelect
@@ -920,6 +897,99 @@ export default function Bookings() {
             <Text style={[styles.pickerText, !bookingTime && styles.placeholder]}>{bookingTime || 'Select time'}</Text>
             <Ionicons name="time-outline" size={18} color="#2a2250" />
           </TouchableOpacity>
+        )}
+
+        {/* Room dropdown */}
+        <Label text="Room Types" required />
+        {loadingRooms ? (
+          <ActivityIndicator color="#fff" />
+        ) : rooms.length === 0 ? (
+          <Text style={styles.hint}>No rooms available.</Text>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.dropdown}
+              onPress={() => setRoomPickerOpen((v) => !v)}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.dropdownText}>
+                {selectedRoomsList.length === 0 ? 'Select room type(s)' : 'Add another room type'}
+              </Text>
+              <Ionicons name={roomPickerOpen ? 'chevron-up' : 'chevron-down'} size={18} color={BTN_TEXT} />
+            </TouchableOpacity>
+
+            {roomPickerOpen && (
+              <View style={styles.dropdownPanel}>
+                {rooms
+                  .filter((r) => !selectedRoomQty[r.room_Id])
+                  .map((r) => (
+                    <TouchableOpacity
+                      key={r.room_Id}
+                      style={styles.dropdownItem}
+                      onPress={() => addRoomType(r.room_Id)}
+                    >
+                      <Text style={styles.dropdownItemTitle}>Room {r.room_Name}</Text>
+                      <Text style={styles.dropdownItemSub}>
+                        Total {r.room_Count} • Max/room {r.max_Persons} • Rs {r.price_per_person}/person
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+
+                {rooms.filter((r) => !selectedRoomQty[r.room_Id]).length === 0 && (
+                  <Text style={styles.hint}>All room types are already added.</Text>
+                )}
+              </View>
+            )}
+
+            {selectedRoomsList.length > 0 && (
+              <View style={{ marginTop: 12, gap: 10 }}>
+                {selectedRoomsList.map(({ room, qty }) => {
+                  const cap = qty * room.max_Persons;
+                  return (
+                    <View key={room.room_Id} style={styles.selectedRoomRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.selectedRoomTitle}>Room {room.room_Name}</Text>
+                        <Text style={styles.selectedRoomSub}>
+                          Total {room.room_Count} • Max/room {room.max_Persons} • Rs {room.price_per_person}/person
+                        </Text>
+                      </View>
+
+                      <View style={styles.stepper}>
+                        <TouchableOpacity
+                          style={[styles.stepBtnCream, qty === 0 && { opacity: 0.6 }]}
+                          onPress={() => decQty(room)}
+                          disabled={qty === 0}
+                          activeOpacity={0.85}
+                        >
+                          <Ionicons name="remove" size={18} color={BTN_TEXT} />
+                        </TouchableOpacity>
+
+                        <View style={styles.stepCount}>
+                          <Text style={styles.stepCountText}>{qty}</Text>
+                        </View>
+
+                        <TouchableOpacity style={styles.stepBtnCream} onPress={() => incQty(room)} activeOpacity={0.85}>
+                          <Ionicons name="add" size={18} color={BTN_TEXT} />
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={{ marginTop: 10, width: '100%' }}>
+                        <Label text={`Guests in ${room.room_Name}`} required />
+                        <Text style={styles.smallHint}>Max {cap} (based on selected rooms)</Text>
+
+                        <TextInput
+                          style={styles.input}
+                          keyboardType="number-pad"
+                          value={String(guestsByRoom[room.room_Id] ?? 0)}
+                          onChangeText={(v) => setGuestsForRoom(room, v, qty)}
+                        />
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </>
         )}
 
         {/* Purpose */}
@@ -954,32 +1024,28 @@ export default function Bookings() {
 
           <View style={styles.summaryDivider} />
 
-          {perRoomTotals.length === 0 ? (
-            <Text style={styles.hint}>Select rooms to see summary.</Text>
-          ) : (
-            perRoomTotals.map((x) => (
-              <View key={x.room_Id} style={styles.roomSummaryCard}>
-                <Text style={styles.roomSummaryTitle}>Room {x.room_Name}</Text>
+          {perRoomTotals.map((x) => (
+            <View key={x.room_Id} style={styles.roomSummaryCard}>
+              <Text style={styles.roomSummaryTitle}>Room {x.room_Name}</Text>
 
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Rooms</Text>
-                  <Text style={styles.summaryValue}>{x.qty}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Guests</Text>
-                  <Text style={styles.summaryValue}>{x.guests}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Price / person</Text>
-                  <Text style={styles.summaryValue}>Rs {x.pricePerPerson}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Subtotal</Text>
-                  <Text style={styles.summaryValue}>Rs {x.subtotal}</Text>
-                </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Rooms</Text>
+                <Text style={styles.summaryValue}>{x.qty}</Text>
               </View>
-            ))
-          )}
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Guests</Text>
+                <Text style={styles.summaryValue}>{x.guests}</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Price / person</Text>
+                <Text style={styles.summaryValue}>Rs {x.pricePerPerson}</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Subtotal</Text>
+                <Text style={styles.summaryValue}>Rs {x.subtotal}</Text>
+              </View>
+            </View>
+          ))}
 
           <View style={styles.summaryDivider} />
 
@@ -988,13 +1054,7 @@ export default function Bookings() {
             <Text style={styles.totalValue}>{grandTotal ? `Rs ${grandTotal}` : '-'}</Text>
           </View>
 
-          <Text style={styles.summaryNote}>
-            Total = nights × (guests in each room type) × price/person
-          </Text>
-
-          <Text style={styles.paymentHint}>
-            You can submit booking now and upload payment proof later, or continue to payment now.
-          </Text>
+          <Text style={styles.summaryNote}>Total = nights × (guests in each room type) × price/person</Text>
         </View>
 
         {/* Buttons */}
@@ -1027,10 +1087,27 @@ export default function Bookings() {
           <Text style={styles.secondaryBtnText}>Continue to Payment</Text>
         </TouchableOpacity>
 
-        <Text style={styles.footerHint}>Booking status will be Pending until admin approval.</Text>
+        {!!minTimeForSelectedCheckIn && (
+          <Text style={styles.smallHint}>
+            Note: On {checkIn}, check-in allowed only after {minTimeForSelectedCheckIn}.
+          </Text>
+        )}
       </View>
 
-      {/* overlay */}
+      {/* ✅ Center popup */}
+      <Modal visible={popupVisible} transparent animationType="fade" onRequestClose={() => setPopupVisible(false)}>
+        <View style={styles.popupOverlay}>
+          <View style={styles.popupCard}>
+            <Ionicons name="alert-circle" size={22} color="#fff" />
+            <Text style={styles.popupText}>{popupMessage}</Text>
+            <TouchableOpacity style={styles.popupBtn} onPress={() => setPopupVisible(false)} activeOpacity={0.85}>
+              <Text style={styles.popupBtnText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Submitting overlay */}
       <Modal visible={submitting} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.submittingCard}>
@@ -1041,7 +1118,7 @@ export default function Bookings() {
         </View>
       </Modal>
 
-      {/* Mobile Modal Picker */}
+      {/* ✅ Picker modal (Mobile uses Calendar for dates; DateTimePicker for time) */}
       {Platform.OS !== 'web' && (
         <Modal visible={pickerOpen} transparent animationType="fade">
           <View style={styles.modalOverlay}>
@@ -1054,34 +1131,80 @@ export default function Bookings() {
                   : 'Select Check-in Time'}
               </Text>
 
-              <DateTimePicker
-                value={tempPickerValue}
-                mode={pickerMode}
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={(_, date) => {
-                  if (date) setTempPickerValue(date);
-                }}
-                minimumDate={
-                  pickerMode === 'date'
-                    ? pickerTarget === 'checkOut' && checkIn
-                      ? (() => {
-                          const d = parseYYYYMMDD(checkIn) ?? new Date();
-                          d.setDate(d.getDate() + 1);
-                          return d;
-                        })()
-                      : new Date()
-                    : undefined
-                }
-              />
+              {pickerMode === 'date' ? (
+                <Calendar
+                  markingType="custom"
+                  markedDates={markedDatesForMobile}
+                  minDate={formatDateYYYYMMDD(new Date())}
+                  onDayPress={(day) => {
+                    const picked = String(day.dateString || '').slice(0, 10);
+                    if (!picked) return;
+
+                    // blocked
+                    if (blockedDaysSet.has(picked)) {
+                      showUiError('This date is already booked (Approved). Please select another date.');
+                      return;
+                    }
+
+                    if (pickerTarget === 'checkIn') {
+                      setCheckIn(picked);
+
+                      // auto checkout next day
+                      if (!checkOut || checkOut <= picked) {
+                        const d = parseYYYYMMDD(picked) || new Date();
+                        const next = addDays(d, 1);
+                        setCheckOut(formatDateYYYYMMDD(next));
+                      }
+
+                      // reset room selection on date change
+                      setSelectedRoomQty({});
+                      setGuestsByRoom({});
+                      setPickerOpen(false);
+                      return;
+                    }
+
+                    if (pickerTarget === 'checkOut') {
+                      if (checkIn && picked <= checkIn) {
+                        showUiError('Check-out must be after check-in.');
+                        return;
+                      }
+
+                      // overlap check
+                      const time = bookingTime || '10:00';
+                      if (checkIn && overlapsApproved(checkIn, picked, time, blocked)) {
+                        showUiError('This stay overlaps an approved booking. Please change dates/time.');
+                        return;
+                      }
+
+                      setCheckOut(picked);
+                      setSelectedRoomQty({});
+                      setGuestsByRoom({});
+                      setPickerOpen(false);
+                      return;
+                    }
+                  }}
+                />
+              ) : (
+                <DateTimePicker
+                  value={tempPickerValue}
+                  mode="time"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={(_, date) => {
+                    if (date) setTempPickerValue(date);
+                  }}
+                />
+              )}
 
               <View style={styles.modalBtns}>
                 <TouchableOpacity style={[styles.modalBtn, styles.modalBtnGhost]} onPress={() => setPickerOpen(false)}>
                   <Text style={styles.modalBtnGhostText}>Cancel</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.modalBtn} onPress={applyPickerValue}>
-                  <Text style={styles.modalBtnText}>Done</Text>
-                </TouchableOpacity>
+                {pickerMode === 'time' ? (
+                  <TouchableOpacity style={styles.modalBtn} onPress={applyTimePicker}>
+                    <Text style={styles.modalBtnText}>Done</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </View>
           </View>
@@ -1116,12 +1239,26 @@ const styles = StyleSheet.create({
   formCard: { backgroundColor: BLACK_BOX, borderRadius: 18, padding: 16, marginTop: 16 },
   formTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', textAlign: 'center', marginBottom: 10 },
 
+  errorBanner: {
+    backgroundColor: '#B00020',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#ffffff33',
+  },
+  errorBannerText: { color: '#fff', fontWeight: '800', flex: 1, fontSize: 13 },
+
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 6 },
   label: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
   requiredPill: { backgroundColor: '#2C2750', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   requiredPillText: { color: CREAM_INPUT, fontSize: 11, fontWeight: '600' },
 
-  smallHint: { color: '#B8B0A5', fontSize: 12, marginTop: 4, fontStyle: 'italic' },
+  smallHint: { color: '#B8B0A5', fontSize: 12, marginTop: 8, fontStyle: 'italic' },
 
   input: { backgroundColor: CREAM_INPUT, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: BTN_TEXT, fontWeight: '600' },
   textArea: { minHeight: 90, textAlignVertical: 'top', paddingTop: 12 },
@@ -1160,15 +1297,12 @@ const styles = StyleSheet.create({
   totalLabel: { color: CREAM_INPUT, fontSize: 14, fontWeight: '600' },
   totalValue: { color: YELLOW, fontSize: 16, fontWeight: '700' },
   summaryNote: { marginTop: 10, color: '#B8B0A5', fontSize: 11, fontStyle: 'italic', lineHeight: 14 },
-  paymentHint: { marginTop: 10, color: '#E2DCD2', fontSize: 12, fontWeight: '600', textAlign: 'center' },
 
   primaryBtn: { marginTop: 16, backgroundColor: YELLOW, borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
   primaryBtnText: { color: BTN_TEXT, fontSize: 14, fontWeight: '700' },
 
   secondaryBtn: { marginTop: 10, borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, borderWidth: 1, borderColor: CARD_EDGE, backgroundColor: 'transparent' },
   secondaryBtnText: { color: CREAM_INPUT, fontSize: 14, fontWeight: '700' },
-
-  footerHint: { marginTop: 10, textAlign: 'center', color: '#B8B0A5', fontSize: 12 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', paddingHorizontal: 18 },
   submittingCard: { backgroundColor: BLACK_BOX, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: CARD_EDGE, alignItems: 'center', gap: 10 },
@@ -1182,4 +1316,26 @@ const styles = StyleSheet.create({
   modalBtnText: { color: BTN_TEXT, fontWeight: '700' },
   modalBtnGhost: { backgroundColor: 'transparent', borderWidth: 1, borderColor: CARD_EDGE },
   modalBtnGhostText: { color: CREAM_INPUT, fontWeight: '600' },
+
+  popupOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+  },
+  popupCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#B00020',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#ffffff33',
+    alignItems: 'center',
+    gap: 10,
+  },
+  popupText: { color: '#fff', fontWeight: '800', textAlign: 'center', fontSize: 14, lineHeight: 18 },
+  popupBtn: { marginTop: 6, backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 },
+  popupBtnText: { color: '#B00020', fontWeight: '900' },
 });

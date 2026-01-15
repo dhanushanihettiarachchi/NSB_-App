@@ -125,9 +125,6 @@ const UserBungalowDetailsScreen = () => {
         <Text style={styles.loadingText}>
           {errorMessage || 'Details not available.'}
         </Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButtonCenter}>
-          <Text style={styles.backText}>Go Back</Text>
-        </TouchableOpacity>
       </View>
     );
   }
@@ -243,9 +240,7 @@ const UserBungalowDetailsScreen = () => {
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity onPress={() => router.back()} style={styles.backButtonBottom}>
-        <Text style={styles.backText}>Back</Text>
-      </TouchableOpacity>
+      
     </ScrollView>
   );
 };
@@ -489,15 +484,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: CREAM,
   },
-  backButtonBottom: {
-    marginTop: 24,
-    alignItems: 'center',
-  },
-  backText: {
-    color: CREAM,
-    fontWeight: '700',
-    fontSize: 14,
-  },
+ 
 
   // ===== Booking CTA =====
   bookingCtaCard: {

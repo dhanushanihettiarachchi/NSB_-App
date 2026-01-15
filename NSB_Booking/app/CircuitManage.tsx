@@ -1,3 +1,4 @@
+// NSB_Booking/app/CircuitManage.tsx
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
@@ -29,7 +30,6 @@ const NAVY = '#020038';
 const YELLOW = '#FFB600';
 const CREAM = '#FFEBD3';
 const BLACK_BOX = '#050515';
-
 
 const toFullUrl = (p?: string) => {
   if (!p) return '';
@@ -64,6 +64,8 @@ export default function ManageCircuitsScreen() {
   const [rooms, setRooms] = useState<RoomPayload[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // ✅ You can keep this even though list is removed,
+  // because after save we can still refresh data (optional)
   const [circuits, setCircuits] = useState<any[]>([]);
   const [listLoading, setListLoading] = useState(false);
 
@@ -71,7 +73,6 @@ export default function ManageCircuitsScreen() {
     try {
       setListLoading(true);
 
-      // ✅ cache-bust + no-store (web)
       const res = await fetch(`${API_URL}/circuits?t=${Date.now()}`, {
         headers: Platform.OS === 'web' ? { 'Cache-Control': 'no-store' } : undefined,
       });
@@ -85,12 +86,12 @@ export default function ManageCircuitsScreen() {
     }
   }, []);
 
-  // initial load
+  // initial load (optional now)
   useEffect(() => {
     fetchCircuits();
   }, [fetchCircuits]);
 
-  // ✅ IMPORTANT: refresh list when coming back from details/edit
+  // refresh when coming back (optional now)
   useFocusEffect(
     useCallback(() => {
       fetchCircuits();
@@ -278,6 +279,7 @@ export default function ManageCircuitsScreen() {
       setDescription('');
       setRooms([]);
 
+      // optional refresh
       fetchCircuits();
     } catch (err) {
       console.log('Save error:', err);
@@ -332,7 +334,11 @@ export default function ManageCircuitsScreen() {
         )}
 
         <TouchableOpacity style={styles.secondaryButton} onPress={pickAndUploadMainImage} disabled={uploadingMain}>
-          {uploadingMain ? <ActivityIndicator color={YELLOW} /> : <Text style={styles.secondaryButtonText}>Pick & Upload Main Image</Text>}
+          {uploadingMain ? (
+            <ActivityIndicator color={YELLOW} />
+          ) : (
+            <Text style={styles.secondaryButtonText}>Pick & Upload Main Image</Text>
+          )}
         </TouchableOpacity>
 
         <Text style={[styles.sectionTitle, { marginTop: 14 }]}>Add Room Types</Text>
@@ -343,7 +349,7 @@ export default function ManageCircuitsScreen() {
         <Text style={styles.label}>Room Count</Text>
         <TextInput style={styles.input} value={roomCount} onChangeText={setRoomCount} keyboardType="numeric" />
 
-        <Text style={styles.label}>Max Persons</Text>
+        <Text style={styles.label}>Max Persons Per One Room</Text>
         <TextInput style={styles.input} value={maxPersons} onChangeText={setMaxPersons} keyboardType="numeric" />
 
         <Text style={styles.label}>Price Per Person</Text>
@@ -379,7 +385,11 @@ export default function ManageCircuitsScreen() {
         )}
 
         <TouchableOpacity style={styles.secondaryButton} onPress={pickAndUploadExtraImages} disabled={uploadingExtra}>
-          {uploadingExtra ? <ActivityIndicator color={YELLOW} /> : <Text style={styles.secondaryButtonText}>Pick & Upload Extra Images</Text>}
+          {uploadingExtra ? (
+            <ActivityIndicator color={YELLOW} />
+          ) : (
+            <Text style={styles.secondaryButtonText}>Pick & Upload Extra Images</Text>
+          )}
         </TouchableOpacity>
 
         {extraPreview.length > 0 && (
@@ -396,47 +406,31 @@ export default function ManageCircuitsScreen() {
         )}
 
         <TouchableOpacity style={styles.button} onPress={handleSave}>
-          {loading ? <ActivityIndicator color={NAVY} /> : <Text style={styles.buttonText}>Save Circuit + Rooms + Images</Text>}
+          {loading ? (
+            <ActivityIndicator color={NAVY} />
+          ) : (
+            <Text style={styles.buttonText}>Save Circuit + Rooms + Images</Text>
+          )}
         </TouchableOpacity>
+
+        
+        {/* optional loading indicator (since fetchCircuits still exists) */}
+        {listLoading ? <ActivityIndicator color="#fff" style={{ marginTop: 10 }} /> : null}
       </View>
 
-      <View style={styles.listSection}>
-        <Text style={styles.sectionTitle}>Existing Circuits</Text>
+          {/* ✅ NEW BUTTON: Navigate to Existing Circuits screen */}
+        <TouchableOpacity
+          style={[styles.viewExistingCircuitsButton, { marginTop: 12 }]}
+          onPress={() => router.push('/ExistingCircuits')}
+        >
+          <Text style={styles.viewExistingCircuitsButtonButtonText}>View Existing Circuits</Text>
+        </TouchableOpacity>
 
-        {listLoading && <ActivityIndicator color="#fff" />}
-
-        {circuits.map((c) => (
-          <TouchableOpacity
-            key={c.circuit_Id}
-            style={styles.cardSmall}
-            onPress={() =>
-              router.push({
-                pathname: '/CircuitDetails',
-                params: { circuitId: String(c.circuit_Id), t: String(Date.now()) },
-              })
-            }
-          >
-            <Text style={styles.cardTitle}>{c.circuit_Name}</Text>
-            <Text style={styles.cardLine}>
-              {c.city} • {c.street}
-            </Text>
-
-            {c.imagePath ? (
-              <Image
-                key={c.imagePath}
-                source={{ uri: toFullUrl(c.imagePath) }}
-                style={{ width: '100%', height: 120, borderRadius: 12, marginTop: 8 }}
-                resizeMode="cover"
-              />
-            ) : (
-              <Text style={styles.cardLineSmall}>No main image</Text>
-            )}
-          </TouchableOpacity>
-        ))}
-      </View>
     </ScrollView>
   );
 }
+
+
 
 const styles = StyleSheet.create({
   screen: { flexGrow: 1, backgroundColor: NAVY, paddingHorizontal: '6%', paddingTop: 40, paddingBottom: 30 },
@@ -455,9 +449,7 @@ const styles = StyleSheet.create({
   roomChip: { borderRadius: 10, padding: 10, marginBottom: 6, backgroundColor: '#171422' },
   roomChipTitle: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
   roomChipText: { color: '#D6D0C6', fontSize: 12 },
-  listSection: { marginTop: 20 },
-  cardSmall: { backgroundColor: BLACK_BOX, borderRadius: 14, padding: 12, marginTop: 8 },
-  cardTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '600', marginBottom: 4 },
-  cardLine: { color: '#E0DBD3', fontSize: 13 },
   cardLineSmall: { color: '#B8B0A5', fontSize: 12, marginTop: 2 },
+  viewExistingCircuitsButton: { backgroundColor: '#b1ec9d', borderRadius: 10, paddingVertical: 10, alignItems: 'center', marginTop: 8 },
+  viewExistingCircuitsButtonButtonText: { color: '#106625', fontWeight: '600', fontSize: 14 },
 });

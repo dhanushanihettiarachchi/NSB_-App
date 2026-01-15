@@ -1,37 +1,51 @@
-import React, { useCallback, useEffect, useState } from 'react';
+// NSB_Booking/app/CircuitDetails.tsx
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
-  ScrollView,
-  Platform,
   TouchableOpacity,
+  ActivityIndicator,
   Alert,
+  ScrollView,
   Image,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from './config';
 
-type CircuitDetailsResponse = {
-  message?: string;
-  circuit?: any;
-  rooms?: any[];
-  images?: any[];
-};
-
 const NAVY = '#020038';
 const YELLOW = '#FFB600';
-const CREAM = '#FFEBD3';
 const BLACK_BOX = '#050515';
-
 
 const toFullUrl = (p?: string) => {
   if (!p) return '';
   if (p.startsWith('http')) return p;
   return `${API_URL}${p}`;
+};
+
+type Circuit = {
+  circuit_Id: number;
+  circuit_Name: string;
+  city: string;
+  street: string;
+  imagePath?: string;
+};
+
+type Room = {
+  room_Id: number;
+  room_Name: string;
+  room_Count: number;
+  max_Persons: number;
+  price_per_person: number;
+  description?: string;
+};
+
+type ExtraImage = {
+  image_Id: number;
+  imagePath: string;
 };
 
 async function getLoggedInUserId(): Promise<number | null> {
@@ -52,76 +66,61 @@ async function buildHeaders() {
   return headers;
 }
 
-const CircuitDetailsScreen = () => {
-  const { circuitId, t } = useLocalSearchParams<{ circuitId?: string; t?: string }>();
+export default function CircuitDetails() {
+  const { circuitId } = useLocalSearchParams<{ circuitId: string }>();
+  const id = useMemo(() => Number(circuitId), [circuitId]);
 
-  const [data, setData] = useState<CircuitDetailsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [circuit, setCircuit] = useState<Circuit | null>(null);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [images, setImages] = useState<ExtraImage[]>([]);
   const [deleting, setDeleting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const loadDetails = useCallback(async () => {
-    if (!circuitId) {
-      setErrorMessage('No circuit id provided to details screen.');
-      setLoading(false);
+  const fetchDetails = useCallback(async () => {
+    if (!id || Number.isNaN(id)) {
+      Alert.alert('Error', 'Invalid circuit id');
       return;
     }
 
     try {
       setLoading(true);
 
-      // ✅ cache buster param
-      const url = `${API_URL}/circuits/${circuitId}?t=${Date.now()}`;
-      const res = await fetch(url, { headers: await buildHeaders() });
+      const res = await fetch(`${API_URL}/circuits/${id}?t=${Date.now()}`, {
+        headers: await buildHeaders(),
+      });
 
-      const json: CircuitDetailsResponse = await res.json().catch(() => ({} as CircuitDetailsResponse));
-
+      const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setErrorMessage(json.message || `Server returned status ${res.status}`);
-        setData(null);
+        Alert.alert('Error', json.message || 'Failed to load circuit details');
         return;
       }
 
-      if (!json?.circuit) {
-        setErrorMessage('API did not return circuit data.');
-        setData(null);
-        return;
-      }
-
-      setData(json);
-      setErrorMessage(null);
-    } catch (err) {
-      console.log('Request error (load details):', err);
-      setErrorMessage('Cannot connect to server.');
-      setData(null);
+      setCircuit(json.circuit || null);
+      setRooms(Array.isArray(json.rooms) ? json.rooms : []);
+      setImages(Array.isArray(json.images) ? json.images : []);
+    } catch (e) {
+      console.log('Details load error:', e);
+      Alert.alert('Error', 'Cannot connect to server');
     } finally {
       setLoading(false);
     }
-  }, [circuitId]);
+  }, [id]);
 
-  // ✅ always reload when screen gains focus
-  useFocusEffect(
-    useCallback(() => {
-      loadDetails();
-    }, [loadDetails])
-  );
-
-  // ✅ reload when param changes (Edit screen can push ?t=...)
   useEffect(() => {
-    if (t) loadDetails();
-  }, [t, loadDetails]);
+    fetchDetails();
+  }, [fetchDetails]);
 
   const performDelete = async () => {
-    if (!circuitId) return Alert.alert('Error', 'No circuit id found.');
+    if (!id || Number.isNaN(id)) return Alert.alert('Error', 'Invalid circuit id');
 
     try {
       setDeleting(true);
 
       const headers = await buildHeaders();
 
-      const res = await fetch(`${API_URL}/circuits/${circuitId}/deactivate`, {
+      const res = await fetch(`${API_URL}/circuits/${id}/deactivate`, {
         method: 'PATCH',
-        headers,
+        headers, // ✅ x-user-id so removed_by is updated
       });
 
       let json: any = {};
@@ -135,7 +134,7 @@ const CircuitDetailsScreen = () => {
       }
 
       Alert.alert('Deleted', 'Circuit was deactivated successfully.');
-      router.replace('/CircuitManage'); // ✅ list screen will refresh on focus
+      router.replace('/CircuitManage');
     } catch (err) {
       console.log('Request error (deactivate):', err);
       Alert.alert('Error', 'Cannot connect to server.');
@@ -145,7 +144,7 @@ const CircuitDetailsScreen = () => {
   };
 
   const handleDelete = () => {
-    if (!circuitId) return Alert.alert('Error', 'No circuit id found.');
+    if (!id || Number.isNaN(id)) return Alert.alert('Error', 'Invalid circuit id');
 
     if (Platform.OS === 'web') {
       const confirmed = window.confirm('Are you sure you want to deactivate this circuit?');
@@ -161,76 +160,88 @@ const CircuitDetailsScreen = () => {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#fff" />
-        <Text style={styles.loadingText}>Loading circuit details...</Text>
+      <View style={styles.loaderWrap}>
+        <ActivityIndicator color={YELLOW} size="large" />
+        <Text style={styles.loaderText}>Loading...</Text>
       </View>
     );
   }
 
-  if (!data || !data.circuit) {
+  if (!circuit) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.loadingText}>{errorMessage || 'Details not available.'}</Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Text style={styles.backText}>Go Back</Text>
-        </TouchableOpacity>
+      <View style={styles.loaderWrap}>
+        <Text style={styles.loaderText}>No circuit found.</Text>
       </View>
     );
   }
-
-  const { circuit, rooms = [], images = [] } = data;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={styles.screen} showsVerticalScrollIndicator={false}>
+      {/* Back icon */}
+      <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
+      </TouchableOpacity>
+
+      {/* Circuit Card */}
       <View style={styles.card}>
         <Text style={styles.title}>{circuit.circuit_Name}</Text>
 
-        <Text style={styles.line}><Text style={styles.label}>City: </Text>{circuit.city}</Text>
-        <Text style={styles.line}><Text style={styles.label}>Street: </Text>{circuit.street}</Text>
+        <Text style={styles.infoLine}>
+          <Text style={styles.infoLabel}>City: </Text>
+          <Text style={styles.infoValue}>{circuit.city}</Text>
+        </Text>
+
+        <Text style={styles.infoLine}>
+          <Text style={styles.infoLabel}>Street: </Text>
+          <Text style={styles.infoValue}>{circuit.street}</Text>
+        </Text>
 
         <Text style={[styles.sectionTitle, { marginTop: 14 }]}>Main Image</Text>
+
         {circuit.imagePath ? (
-          <Image
-            source={{ uri: toFullUrl(circuit.imagePath) }}
-            style={{ width: '100%', height: 180, borderRadius: 12, marginTop: 8 }}
-            resizeMode="cover"
-          />
+          <Image source={{ uri: toFullUrl(circuit.imagePath) }} style={styles.mainImage} resizeMode="cover" />
         ) : (
-          <Text style={styles.smallText}>No main image.</Text>
+          <Text style={styles.smallText}>No main image</Text>
         )}
       </View>
 
-      <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Rooms</Text>
+      {/* Rooms */}
+      <Text style={[styles.sectionTitle, { marginTop: 18 }]}>Rooms</Text>
+
       {rooms.length === 0 ? (
-        <Text style={styles.smallText}>No rooms found.</Text>
+        <Text style={styles.smallText}>No rooms available.</Text>
       ) : (
-        rooms.map((room: any) => (
-          <View key={room.room_Id} style={styles.subCard}>
-            <Text style={styles.cardTitle}>{room.room_Name}</Text>
-            <Text style={styles.cardLine}>Count: {room.room_Count} • Max Persons: {room.max_Persons}</Text>
-            <Text style={styles.cardLine}>Price per person: {room.price_per_person}</Text>
-            {!!room.description && <Text style={styles.cardLineSmall}>{room.description}</Text>}
+        rooms.map((r) => (
+          <View key={r.room_Id} style={styles.roomCard}>
+            <Text style={styles.roomTitle}>{r.room_Name}</Text>
+            <Text style={styles.roomLine}>
+              Rooms: {r.room_Count} | Max per room: {r.max_Persons}
+            </Text>
+            <Text style={styles.roomLine}>Price per person: Rs. {r.price_per_person}</Text>
+            {!!r.description && <Text style={styles.roomDesc}>{r.description}</Text>}
           </View>
         ))
       )}
 
-      <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Extra Images</Text>
-      {images.length === 0 ? (
-        <Text style={styles.smallText}>No extra images.</Text>
-      ) : (
-        images.map((img: any) => (
-          <View key={img.image_Id} style={styles.subCard}>
+      {/* ✅ More Images in BLACK BOX CARD */}
+      <View style={[styles.card, { marginTop: 18 }]}>
+        <Text style={styles.sectionTitle}>More Images</Text>
+
+        {images.length === 0 ? (
+          <Text style={styles.smallText}>No extra images.</Text>
+        ) : (
+          images.slice(0, 8).map((img) => (
             <Image
+              key={img.image_Id}
               source={{ uri: toFullUrl(img.imagePath) }}
-              style={{ width: '100%', height: 140, borderRadius: 12 }}
+              style={styles.extraImage}
               resizeMode="cover"
             />
-            <Text style={styles.cardLineSmall} numberOfLines={2}>{img.imagePath}</Text>
-          </View>
-        ))
-      )}
+          ))
+        )}
+      </View>
 
+      {/* ✅ Buttons inside ScrollView (after images) */}
       <View style={styles.buttonRow}>
         <TouchableOpacity
           style={[styles.actionButton, { backgroundColor: YELLOW }]}
@@ -258,46 +269,118 @@ const CircuitDetailsScreen = () => {
           <Text style={styles.deleteStatusText}>Deactivating...</Text>
         </View>
       )}
-
-      <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-        <Text style={styles.backText}>Back to list</Text>
-      </TouchableOpacity>
     </ScrollView>
   );
-};
-
-export default CircuitDetailsScreen;
+}
 
 const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: '6%',
-    paddingTop: 40,
-    paddingBottom: 30,
-    backgroundColor: NAVY,
+  screen: {
     flexGrow: 1,
-  },
-  center: {
-    flex: 1,
     backgroundColor: NAVY,
+    paddingTop: 50,
+    paddingHorizontal: '6%',
+    paddingBottom: 40,
+  },
+
+  backButton: {
+    alignSelf: 'flex-start',
+    padding: 6,
+    marginBottom: 10,
+  },
+
+  card: {
+    width: '100%',
+    backgroundColor: BLACK_BOX,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+
+  title: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+
+  infoLine: { marginBottom: 4 },
+  infoLabel: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
+  infoValue: { color: '#D6D0C6', fontSize: 13 },
+
+  sectionTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+
+  smallText: { color: '#B8B0A5', fontSize: 12 },
+
+  mainImage: { width: '100%', height: 180, borderRadius: 12 },
+
+  roomCard: {
+    backgroundColor: BLACK_BOX,
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 10,
+  },
+
+  roomTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', marginBottom: 6 },
+  roomLine: { color: '#D6D0C6', fontSize: 12, marginBottom: 4 },
+  roomDesc: { color: '#B8B0A5', fontSize: 12, marginTop: 4 },
+
+  extraImage: {
+    width: '100%',
+    height: 140,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 18,
+  },
+
+  actionButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+
+  actionText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+
+  deleteStatus: {
+    marginTop: 10,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  loadingText: { color: '#FFFFFF', marginTop: 8 },
-  card: { backgroundColor: BLACK_BOX, borderRadius: 18, padding: 18 },
-  title: { color: '#FFFFFF', fontSize: 22, fontWeight: '700', marginBottom: 10, textAlign: 'center' },
-  line: { color: '#E2DCD2', fontSize: 14, marginBottom: 4 },
-  label: { fontWeight: '600', color: '#FFFFFF' },
-  sectionTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginTop: 16, marginBottom: 4 },
-  smallText: { color: '#DDD3C8', fontSize: 13, fontStyle: 'italic' },
-  subCard: { backgroundColor: BLACK_BOX, borderRadius: 14, padding: 12, marginTop: 8 },
-  cardTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '600', marginBottom: 4 },
-  cardLine: { color: '#E0D9CE', fontSize: 13 },
-  cardLineSmall: { color: '#B8B0A5', fontSize: 12, marginTop: 6 },
-  buttonRow: { flexDirection: 'row', marginTop: 24, justifyContent: 'space-between', gap: 12 },
-  actionButton: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
-  actionText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  deleteStatus: { marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  deleteStatusText: { marginLeft: 8, fontSize: 14, color: '#FFD2CF', fontWeight: '500' },
-  backButton: { marginTop: 24, alignItems: 'center' },
-  backText: { color: CREAM, fontWeight: '600', fontSize: 14 },
+
+  deleteStatusText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#FFD2CF',
+    fontWeight: '500',
+  },
+
+  loaderWrap: {
+    flex: 1,
+    backgroundColor: NAVY,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+
+  loaderText: {
+    color: '#FFFFFF',
+    marginTop: 10,
+  },
 });

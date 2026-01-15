@@ -42,12 +42,154 @@ function todayYYYYMMDD() {
 }
 
 // =====================================================
+// ✅ GET /bookings/unavailable?circuitId=123
+// (kept as-is, returns approved bookings ranges for circuit)
+// =====================================================
+router.get('/unavailable', async (req, res) => {
+  try {
+    const circuitId = Number(req.query.circuitId);
+    if (!Number.isInteger(circuitId) || circuitId <= 0) {
+      return res.status(400).json({ message: 'Invalid circuitId' });
+    }
+
+    const pool = await getPool();
+
+    const result = await pool.request()
+      .input('circuit_Id', sql.Int, circuitId)
+      .query(`
+        SELECT
+          b.booking_id,
+          r.circuit_Id AS circuit_id,
+          b.check_in_date,
+          b.check_out_date,
+          b.booking_time,
+          b.status
+        FROM Bookings b
+        LEFT JOIN CircuitRooms r ON r.room_Id = b.room_id
+        WHERE
+          r.circuit_Id = @circuit_Id
+          AND b.status = 'Approved'
+        ORDER BY b.check_in_date ASC, b.booking_time ASC;
+      `);
+
+    res.set('Cache-Control', 'no-store');
+    res.set('Pragma', 'no-cache');
+
+    return res.json({ blocked: result.recordset });
+  } catch (err) {
+    console.error('Get unavailable ranges error >>>', err);
+    return res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// =====================================================
+// ✅ NEW: GET /bookings/availability?circuitId=123&checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD&time=HH:mm
+// Returns remaining rooms per room type based on APPROVED overlaps
+// =====================================================
+router.get('/availability', async (req, res) => {
+  try {
+    const circuitId = Number(req.query.circuitId);
+    const checkIn = String(req.query.checkIn || '');
+    const checkOut = String(req.query.checkOut || '');
+    const time = normalizeTimeHHMM(String(req.query.time || '')) || '10:00';
+
+    if (!Number.isInteger(circuitId) || circuitId <= 0) {
+      return res.status(400).json({ message: 'Invalid circuitId' });
+    }
+    if (!isValidDateYYYYMMDD(checkIn) || !isValidDateYYYYMMDD(checkOut)) {
+      return res.status(400).json({ message: 'Invalid checkIn/checkOut format. Use YYYY-MM-DD.' });
+    }
+    if (checkOut <= checkIn) {
+      return res.status(400).json({ message: 'checkOut must be after checkIn.' });
+    }
+
+    const pool = await getPool();
+
+    const result = await pool.request()
+      .input('circuit_Id', sql.Int, circuitId)
+      .input('newCheckIn', sql.Date, checkIn)
+      .input('newCheckOut', sql.Date, checkOut)
+      .input('newTime', sql.VarChar(5), time)
+      .query(`
+        ;WITH Rooms AS (
+          SELECT room_Id, room_Name, room_Count, max_Persons, price_per_person
+          FROM CircuitRooms
+          WHERE circuit_Id = @circuit_Id AND is_active = 1
+        ),
+        Approved AS (
+          SELECT
+            b.room_id,
+            b.need_room_count,
+            DATEADD(
+              MINUTE,
+              DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
+              CAST(CAST(b.check_in_date AS date) AS datetime)
+            ) AS OldStart,
+            DATEADD(
+              MINUTE,
+              DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
+              CAST(CAST(b.check_out_date AS date) AS datetime)
+            ) AS OldEnd
+          FROM Bookings b
+          WHERE b.status = 'Approved'
+        ),
+        NewRange AS (
+          SELECT
+            DATEADD(
+              MINUTE,
+              DATEDIFF(MINUTE, 0, CAST(@newTime AS time)),
+              CAST(CAST(@newCheckIn AS date) AS datetime)
+            ) AS NewStart,
+            DATEADD(
+              MINUTE,
+              DATEDIFF(MINUTE, 0, CAST(@newTime AS time)),
+              CAST(CAST(@newCheckOut AS date) AS datetime)
+            ) AS NewEnd
+        ),
+        Overlapping AS (
+          SELECT a.room_id, a.need_room_count
+          FROM Approved a
+          CROSS JOIN NewRange n
+          WHERE a.OldStart < n.NewEnd
+            AND a.OldEnd > n.NewStart
+        )
+        SELECT
+          r.room_Id,
+          r.room_Name,
+          r.room_Count,
+          ISNULL(SUM(o.need_room_count), 0) AS booked_count,
+          (r.room_Count - ISNULL(SUM(o.need_room_count), 0)) AS remaining,
+          r.max_Persons,
+          r.price_per_person
+        FROM Rooms r
+        LEFT JOIN Overlapping o ON o.room_id = r.room_Id
+        GROUP BY r.room_Id, r.room_Name, r.room_Count, r.max_Persons, r.price_per_person
+        ORDER BY r.room_Name ASC;
+      `);
+
+    res.set('Cache-Control', 'no-store');
+    return res.json({ availability: result.recordset });
+  } catch (err) {
+    console.error('Get availability error >>>', err);
+    return res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// =====================================================
 // POST /bookings
 // =====================================================
 router.post('/', async (req, res) => {
   try {
     const user_id = getCurrentUserId(req);
-    const { booking_date, check_in_date, check_out_date, booking_time, purpose, items } = req.body;
+    const {
+      circuit_id: circuit_id_from_body,
+      booking_date,
+      check_in_date,
+      check_out_date,
+      booking_time,
+      purpose,
+      items,
+    } = req.body;
 
     if (!user_id) {
       return res.status(400).json({
@@ -93,18 +235,133 @@ router.post('/', async (req, res) => {
     }
 
     const timeHHMM = normalizeTimeHHMM(booking_time);
+    const timeOrDefault = timeHHMM || '10:00';
 
     const pool = await getPool();
     const tx = new sql.Transaction(pool);
     await tx.begin();
 
     try {
-      // Validate room availability + capacity
+      // -------------------------------------------------------
+      // ✅ 1) Determine circuit_Id safely (from body or room)
+      // -------------------------------------------------------
+      let circuit_Id = Number(circuit_id_from_body);
+      if (!Number.isInteger(circuit_Id) || circuit_Id <= 0) {
+        const firstRoomId = safeItems[0].room_id;
+        const derived = await new sql.Request(tx)
+          .input('room_id', sql.Int, firstRoomId)
+          .query(`
+            SELECT TOP 1 circuit_Id
+            FROM CircuitRooms
+            WHERE room_Id = @room_id;
+          `);
+
+        if (!derived.recordset.length) {
+          await tx.rollback();
+          return res.status(404).json({ message: `Room not found (room_id=${firstRoomId})` });
+        }
+        circuit_Id = Number(derived.recordset[0].circuit_Id);
+      }
+
+      // -------------------------------------------------------
+      // ✅ 2) IMPORTANT CHANGE:
+      // Enforce availability PER ROOM TYPE (Approved bookings only)
+      // -------------------------------------------------------
+      for (const it of safeItems) {
+        const availabilityCheck = await new sql.Request(tx)
+          .input('room_id', sql.Int, it.room_id)
+          .input('newCheckIn', sql.Date, check_in_date)
+          .input('newCheckOut', sql.Date, check_out_date)
+          .input('newTime', sql.VarChar(5), timeOrDefault)
+          .query(`
+            ;WITH RoomInfo AS (
+              SELECT room_Id, room_Count, circuit_Id
+              FROM CircuitRooms
+              WHERE room_Id = @room_id AND is_active = 1
+            ),
+            Approved AS (
+              SELECT
+                b.booking_id,
+                b.need_room_count,
+                DATEADD(
+                  MINUTE,
+                  DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
+                  CAST(CAST(b.check_in_date AS date) AS datetime)
+                ) AS OldStart,
+                DATEADD(
+                  MINUTE,
+                  DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
+                  CAST(CAST(b.check_out_date AS date) AS datetime)
+                ) AS OldEnd
+              FROM Bookings b
+              WHERE b.status = 'Approved'
+                AND b.room_id = @room_id
+            ),
+            NewRange AS (
+              SELECT
+                DATEADD(
+                  MINUTE,
+                  DATEDIFF(MINUTE, 0, CAST(@newTime AS time)),
+                  CAST(CAST(@newCheckIn AS date) AS datetime)
+                ) AS NewStart,
+                DATEADD(
+                  MINUTE,
+                  DATEDIFF(MINUTE, 0, CAST(@newTime AS time)),
+                  CAST(CAST(@newCheckOut AS date) AS datetime)
+                ) AS NewEnd
+            ),
+            Overlapping AS (
+              SELECT a.need_room_count
+              FROM Approved a
+              CROSS JOIN NewRange n
+              WHERE a.OldStart < n.NewEnd
+                AND a.OldEnd > n.NewStart
+            )
+            SELECT
+              ri.room_Count,
+              ri.circuit_Id,
+              ISNULL(SUM(o.need_room_count), 0) AS booked_count
+            FROM RoomInfo ri
+            LEFT JOIN Overlapping o ON 1=1
+            GROUP BY ri.room_Count, ri.circuit_Id;
+          `);
+
+        if (!availabilityCheck.recordset.length) {
+          await tx.rollback();
+          return res.status(404).json({ message: `Room not found or inactive (room_id=${it.room_id})` });
+        }
+
+        const row = availabilityCheck.recordset[0];
+        const roomCount = Number(row.room_Count) || 0;
+        const booked = Number(row.booked_count) || 0;
+        const remaining = roomCount - booked;
+
+        // ensure room belongs to circuit
+        const roomCircuit = Number(row.circuit_Id);
+        if (Number.isInteger(roomCircuit) && roomCircuit > 0 && roomCircuit !== circuit_Id) {
+          await tx.rollback();
+          return res.status(400).json({
+            message: `Room does not belong to selected circuit (room_id=${it.room_id})`,
+          });
+        }
+
+        if (it.need_room_count > remaining) {
+          await tx.rollback();
+          return res.status(409).json({
+            message: `Room not available for selected dates/time. Remaining=${remaining}, requested=${it.need_room_count}`,
+          });
+        }
+      }
+
+      // -------------------------------------------------------
+      // ✅ 3) Validate room capacity + active + total room_count (your existing logic)
+      // (kept same, but still useful)
+      // -------------------------------------------------------
       for (const it of safeItems) {
         const roomCheck = await new sql.Request(tx)
           .input('room_id', sql.Int, it.room_id)
           .query(`
-            SELECT room_Id, room_Count, max_Persons, is_active
+            SELECT room_Id, room_Count, max_Persons, is_active, circuit_Id
             FROM CircuitRooms
             WHERE room_Id = @room_id;
           `);
@@ -130,6 +387,7 @@ router.post('/', async (req, res) => {
           });
         }
 
+        // max_Persons is per room
         const cap = it.need_room_count * maxPersons;
         if (it.guest_count > cap) {
           await tx.rollback();
@@ -139,6 +397,9 @@ router.post('/', async (req, res) => {
         }
       }
 
+      // -------------------------------------------------------
+      // ✅ 4) Insert bookings (Pending)
+      // -------------------------------------------------------
       const insertedIds = [];
 
       for (const it of safeItems) {
@@ -148,7 +409,7 @@ router.post('/', async (req, res) => {
           .input('booking_date', sql.Date, bDate)
           .input('check_in_date', sql.Date, check_in_date)
           .input('check_out_date', sql.Date, check_out_date)
-          .input('booking_time', sql.VarChar(5), timeHHMM)
+          .input('booking_time', sql.VarChar(5), timeHHMM) // keep null if empty
           .input('guest_count', sql.Int, it.guest_count)
           .input('purpose', sql.NVarChar(255), purpose || null)
           .input('status', sql.NVarChar(50), 'Pending')
@@ -263,7 +524,8 @@ router.get('/user/:userId', async (req, res) => {
 });
 
 // =====================================================
-// PATCH /bookings/batch  (user edits pending bookings)
+// PATCH /bookings/batch (user edits pending bookings)
+// (kept as-is)
 // =====================================================
 router.patch('/batch', async (req, res) => {
   try {
@@ -302,7 +564,6 @@ router.patch('/batch', async (req, res) => {
     await tx.begin();
 
     try {
-      // 1) verify ownership + pending
       for (const id of ids) {
         const check = await new sql.Request(tx)
           .input('booking_id', sql.Int, id)
@@ -327,7 +588,6 @@ router.patch('/batch', async (req, res) => {
         }
       }
 
-      // 2) update each booking row
       for (const id of ids) {
         const perItem = safeItems.find((x) => Number(x.booking_id) === id);
 
@@ -386,8 +646,6 @@ router.patch('/batch', async (req, res) => {
 
 // =====================================================
 // ✅ ADMIN LIST: GET /bookings?status=Pending|Approved|Rejected|All
-// Includes: user_name + total + latest slip path
-// Queue order: first come first serve (created_date ASC)
 // =====================================================
 router.get('/', async (req, res) => {
   try {
@@ -426,10 +684,8 @@ router.get('/', async (req, res) => {
           b.status,
           b.created_date,
 
-          -- ✅ estimated total (simple calculation)
           CAST((b.guest_count * r.price_per_person) AS decimal(10,2)) AS estimated_total,
 
-          -- ✅ latest slip path + payment amount if exists
           p.amount AS payment_amount,
           p.payment_slip_path,
           p.payment_slip_uploaded_date
