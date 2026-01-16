@@ -1,3 +1,4 @@
+// NSB_Booking/app/SignUp.tsx
 import React, { useState } from 'react';
 import {
   View,
@@ -8,27 +9,46 @@ import {
   Platform,
   StyleSheet,
   ActivityIndicator,
+  Pressable,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { API_URL } from './config';
+
+/* ================= CONSTANTS ================= */
 
 const NAVY = '#020038';
 const YELLOW = '#FFB600';
-const CREAM = '#FFEBD3';
-const BLACK_BOX = '#050515';
+const CARD = '#0A0A1A';
+const MUTED = 'rgba(255,255,255,0.7)';
 
+type FocusField =
+  | 'firstName'
+  | 'lastName'
+  | 'email'
+  | 'phone'
+  | 'password'
+  | 'confirm'
+  | null;
 
+/* ================= COMPONENT ================= */
 
 export default function SignUpScreen() {
   const [firstName, setFirstName] = useState('');
-  const [lastName,  setLastName]  = useState('');
-  const [email,     setEmail]     = useState('');
-  const [phone,     setPhone]     = useState('');
-  const [password,  setPassword]  = useState('');
-  const [confirm,   setConfirm]   = useState('');
-  const [loading,   setLoading]   = useState(false);
-  const [error,     setError]     = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [focusField, setFocusField] = useState<FocusField>(null);
+
+  /* ================= HANDLER (UNCHANGED) ================= */
 
   const handleSignUp = async () => {
     setError('');
@@ -73,181 +93,271 @@ export default function SignUpScreen() {
     }
   };
 
+  /* ================= UI ================= */
+
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    <LinearGradient
+      colors={['#020038', '#05004A', '#020038']}
+      style={styles.background}
     >
-      {/* Back arrow */}
-      <View style={styles.topRow}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
+      <KeyboardAvoidingView
+        style={styles.screen}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        {/* Back Arrow */}
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerBack}>
+          <Ionicons name="chevron-back" size={28} color="#FFFFFF" />
         </TouchableOpacity>
-      </View>
 
-        <Text style={styles.title}>Sign Up</Text>
-        <Text style={styles.subtitle}>Sign up to Continue...</Text>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.title}>Create Account</Text>
+          <Text style={styles.subtitle}>Sign up to continue</Text>
+        </View>
 
-      <View style={styles.card}>
-        <Text style={styles.label}>First name</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Type your first name here"
-          placeholderTextColor="#B0A9A0"
-          value={firstName}
-          onChangeText={setFirstName}
-        />
+        {/* Card */}
+        <View style={styles.card}>
+          {/* First Name */}
+          <Text style={styles.label}>First Name</Text>
+          <View style={[styles.inputWrap, focusField === 'firstName' && styles.inputFocus]}>
+            <Ionicons name="person-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              placeholder="First name"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              value={firstName}
+              onChangeText={setFirstName}
+              onFocus={() => setFocusField('firstName')}
+              onBlur={() => setFocusField(null)}
+            />
+          </View>
 
-        <Text style={styles.label}>Last name</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Type your last name here"
-          placeholderTextColor="#B0A9A0"
-          value={lastName}
-          onChangeText={setLastName}
-        />
+          {/* Last Name */}
+          <Text style={[styles.label, { marginTop: 12 }]}>Last Name</Text>
+          <View style={[styles.inputWrap, focusField === 'lastName' && styles.inputFocus]}>
+            <Ionicons name="person-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              placeholder="Last name"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              value={lastName}
+              onChangeText={setLastName}
+              onFocus={() => setFocusField('lastName')}
+              onBlur={() => setFocusField(null)}
+            />
+          </View>
 
-        <Text style={styles.label}>Email</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Type your email here"
-          placeholderTextColor="#B0A9A0"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
+          {/* Email */}
+          <Text style={[styles.label, { marginTop: 12 }]}>Email</Text>
+          <View style={[styles.inputWrap, focusField === 'email' && styles.inputFocus]}>
+            <Ionicons name="mail-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              placeholder="name@example.com"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              onFocus={() => setFocusField('email')}
+              onBlur={() => setFocusField(null)}
+            />
+          </View>
 
-        <Text style={styles.label}>Mobile Number</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Type your mobile number here"
-          placeholderTextColor="#B0A9A0"
-          value={phone}
-          onChangeText={setPhone}
-          keyboardType="phone-pad"
-        />
+          {/* Phone */}
+          <Text style={[styles.label, { marginTop: 12 }]}>Mobile Number</Text>
+          <View style={[styles.inputWrap, focusField === 'phone' && styles.inputFocus]}>
+            <Ionicons name="call-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              placeholder="07XXXXXXXX"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              onFocus={() => setFocusField('phone')}
+              onBlur={() => setFocusField(null)}
+            />
+          </View>
 
-        <Text style={styles.label}>Password</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Type your password here"
-          placeholderTextColor="#B0A9A0"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-        />
+          {/* Password */}
+          <Text style={[styles.label, { marginTop: 12 }]}>Password</Text>
+          <View style={[styles.inputWrap, focusField === 'password' && styles.inputFocus]}>
+            <Ionicons name="lock-closed-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+              onFocus={() => setFocusField('password')}
+              onBlur={() => setFocusField(null)}
+            />
+            <Pressable onPress={() => setShowPassword(!showPassword)}>
+              <Ionicons
+                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                size={18}
+                color={MUTED}
+              />
+            </Pressable>
+          </View>
 
-        <Text style={styles.label}>Confirm Password</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Confirm your password"
-          placeholderTextColor="#B0A9A0"
-          value={confirm}
-          onChangeText={setConfirm}
-          secureTextEntry
-        />
+          {/* Confirm Password */}
+          <Text style={[styles.label, { marginTop: 12 }]}>Confirm Password</Text>
+          <View style={[styles.inputWrap, focusField === 'confirm' && styles.inputFocus]}>
+            <Ionicons name="lock-closed-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              placeholder="Confirm password"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              value={confirm}
+              onChangeText={setConfirm}
+              secureTextEntry={!showConfirm}
+              onFocus={() => setFocusField('confirm')}
+              onBlur={() => setFocusField(null)}
+            />
+            <Pressable onPress={() => setShowConfirm(!showConfirm)}>
+              <Ionicons
+                name={showConfirm ? 'eye-off-outline' : 'eye-outline'}
+                size={18}
+                color={MUTED}
+              />
+            </Pressable>
+          </View>
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {/* Error */}
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleSignUp}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Sign Up</Text>
-          )}
-        </TouchableOpacity>
-      </View>
+          {/* Button */}
+          <TouchableOpacity
+            style={[styles.button, loading && styles.buttonDisabled]}
+            onPress={handleSignUp}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color={NAVY} />
+            ) : (
+              <Text style={styles.buttonText}>Create Account</Text>
+            )}
+          </TouchableOpacity>
+        </View>
 
-      <View style={styles.bottom}>
-        <Text style={styles.bottomText}>National Savings Bank</Text>
-        <Text style={styles.bottomText}>Welfare Division</Text>
-      </View>
-    </KeyboardAvoidingView>
+        {/* Bottom */}
+        <View style={styles.bottom}>
+          <Text style={styles.bottomText}>National Savings Bank</Text>
+          <Text style={styles.bottomText}>Welfare Division</Text>
+        </View>
+      </KeyboardAvoidingView>
+    </LinearGradient>
   );
 }
 
+/* ================= STYLES ================= */
+
 const styles = StyleSheet.create({
+  background: { flex: 1 },
+
   screen: {
     flex: 1,
-    backgroundColor: NAVY,
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    paddingHorizontal: '6%',
-    paddingTop: 60, 
+    paddingHorizontal: '7%',
+    paddingTop: 60,
   },
-  topRow: {
+
+ headerBack: {
     position: 'absolute',
-    top: 40,
-    left: 20,
+    top: 30,
+    left: 16,
+    zIndex: 10,
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
   },
-  backButton: {
-    padding: 4,
+
+  header: {
+    alignItems: 'center',
+    marginBottom: 18,
   },
-  card: {
-    width: '100%',
-    backgroundColor: BLACK_BOX,
-    borderRadius: 18,
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-  },
+
   title: {
     color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 4,
+    fontSize: 24,
+    fontWeight: '800',
   },
+
   subtitle: {
-    color: '#FFFFFF',
+    color: MUTED,
     fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 20,
-    opacity: 0.8,
+    marginTop: 6,
   },
+
+  card: {
+    backgroundColor: CARD,
+    borderRadius: 22,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+
   label: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13,
     marginBottom: 6,
+    fontWeight: '600',
   },
+
+  inputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    height: 48,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+
+  inputFocus: {
+    borderColor: YELLOW,
+    backgroundColor: 'rgba(255,182,0,0.08)',
+  },
+
   input: {
-    backgroundColor: CREAM,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 14,
+    flex: 1,
+    color: '#FFFFFF',
     fontSize: 14,
   },
+
+  errorText: {
+    color: '#FB7185',
+    fontSize: 12,
+    marginTop: 10,
+  },
+
   button: {
     backgroundColor: YELLOW,
-    borderRadius: 10,
-    paddingVertical: 12,
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 8,
+    marginTop: 18,
   },
+
   buttonDisabled: {
     opacity: 0.7,
   },
+
   buttonText: {
     color: NAVY,
-    fontWeight: '700',
+    fontWeight: '900',
     fontSize: 16,
   },
-  errorText: {
-    color: 'red',
-    fontSize: 12,
-    marginBottom: 6,
-  },
+
   bottom: {
     position: 'absolute',
     bottom: 18,
@@ -255,9 +365,9 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
   },
+
   bottomText: {
-    color: '#FFFFFF',
+    color: 'rgba(255,255,255,0.75)',
     fontSize: 11,
-    opacity: 0.8,
   },
 });

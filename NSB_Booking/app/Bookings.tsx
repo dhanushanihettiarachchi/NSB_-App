@@ -15,6 +15,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Calendar } from 'react-native-calendars';
+import { LinearGradient } from 'expo-linear-gradient';
 import { API_URL } from './config';
 import { useBookingDraft } from './context/BookingDraftContext';
 
@@ -29,7 +30,7 @@ type Room = {
 type BlockedRange = {
   booking_id: number;
   circuit_id: number;
-  check_in_date: string;  // YYYY-MM-DD
+  check_in_date: string; // YYYY-MM-DD
   check_out_date: string; // YYYY-MM-DD
   booking_time?: string | null; // "HH:mm" or null
   status: string; // Approved
@@ -74,7 +75,6 @@ const normalizeBookingTimeHHMM = (t: any, fallback: string = '10:00') => {
   return fallback;
 };
 
-
 const parseYYYYMMDD = (s: string) => {
   if (!s) return null;
   const [y, m, d] = s.split('-').map((x) => parseInt(x, 10));
@@ -117,7 +117,6 @@ const overlapsApproved = (
     if (String(b.status || '').toLowerCase() !== 'approved') return false;
     const oldStart = buildDT(b.check_in_date, normalizeBookingTimeHHMM(b.booking_time, '10:00'));
     const oldEnd = buildDT(b.check_out_date, normalizeBookingTimeHHMM(b.booking_time, '10:00'));
-
 
     // ✅ [start, end) style overlap
     return oldStart < newEnd && oldEnd > newStart;
@@ -190,8 +189,6 @@ const buildCheckoutMinTimeMap = (blocked: BlockedRange[]) => {
     const day = String(b.check_out_date || '').slice(0, 10);
     const t = normalizeBookingTimeHHMM(b.booking_time, '10:00');
 
-
-
     // keep LATEST
     if (!map[day] || t > map[day]) map[day] = t;
   });
@@ -203,7 +200,10 @@ const buildBlockedDaysSet = (blocked: BlockedRange[]) => {
   const s = new Set<string>();
   blocked.forEach((b) => {
     if (String(b.status || '').toLowerCase() !== 'approved') return;
-    const days = daysBetweenExclusiveEnd(String(b.check_in_date).slice(0, 10), String(b.check_out_date).slice(0, 10));
+    const days = daysBetweenExclusiveEnd(
+      String(b.check_in_date).slice(0, 10),
+      String(b.check_out_date).slice(0, 10)
+    );
     days.forEach((d) => s.add(d));
   });
   return s;
@@ -298,7 +298,9 @@ export default function Bookings() {
       if (!circuitId) return;
       try {
         setLoadingBlocked(true);
-        const res = await fetch(`${API_URL}/bookings/unavailable?circuitId=${encodeURIComponent(circuitId)}`);
+        const res = await fetch(
+          `${API_URL}/bookings/unavailable?circuitId=${encodeURIComponent(circuitId)}`
+        );
         const json = await res.json().catch(() => ({}));
         const list = (json.blocked || []) as BlockedRange[];
         setBlocked(Array.isArray(list) ? list : []);
@@ -361,10 +363,7 @@ export default function Bookings() {
     });
   }, [selectedRoomsList, guestsByRoom, nights]);
 
-  const grandTotal = useMemo(
-    () => perRoomTotals.reduce((sum, x) => sum + x.subtotal, 0),
-    [perRoomTotals]
-  );
+  const grandTotal = useMemo(() => perRoomTotals.reduce((sum, x) => sum + x.subtotal, 0), [perRoomTotals]);
 
   // ✅ Web: disable days
   const isWebDayDisabled = (date: Date) => {
@@ -745,7 +744,6 @@ export default function Bookings() {
       return;
     }
     if (blockedDaysSet.has(picked)) {
-      // NOTE: checkout day itself might be in blockedDaysSet only if some other booking blocks it
       showUiError('This date is already booked (Approved). Please select another date.');
       return;
     }
@@ -758,490 +756,586 @@ export default function Bookings() {
     }
 
     setCheckOut(picked);
-
     setSelectedRoomQty({});
     setGuestsByRoom({});
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <TouchableOpacity style={styles.headerBack} onPress={() => router.back()}>
-        <Ionicons name="chevron-back" size={28} color="#FFFFFF" />
-      </TouchableOpacity>
+    <LinearGradient colors={['#020038', '#05004A', '#020038']} style={{ flex: 1 }}>
+      <ScrollView contentContainerStyle={styles.container}>
+        <TouchableOpacity style={styles.headerBack} onPress={() => router.back()} activeOpacity={0.9}>
+          <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
+        </TouchableOpacity>
 
-      <View style={styles.topCard}>
-        <Text style={styles.circuitTitle}>{circuitName || 'Circuit'}</Text>
-        <View style={styles.locationRow}>
-          <Ionicons name="location-outline" size={16} color={CREAM_INPUT} />
-          <Text style={styles.locationText}>
-            {city}
-            {street ? ` · ${street}` : ''}
-          </Text>
+        <View style={styles.topCard}>
+          <Text style={styles.circuitTitle}>{circuitName || 'Circuit'}</Text>
+          <View style={styles.locationRow}>
+            <Ionicons name="location-outline" size={16} color={CREAM_INPUT} />
+            <Text style={styles.locationText}>
+              {city}
+              {street ? ` • ${street}` : ''}
+            </Text>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.formCard}>
-        <Text style={styles.formTitle}>Booking Details</Text>
+        <View style={styles.formCard}>
+          <Text style={styles.formTitle}>Booking Details</Text>
 
-        {(loadingBlocked && (
-          <View style={{ marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <ActivityIndicator color="#fff" />
-            <Text style={{ color: '#fff', fontWeight: '700' }}>Loading availability...</Text>
-          </View>
-        )) || null}
+          {(loadingBlocked && (
+            <View style={styles.loadingRow}>
+              <ActivityIndicator color="#fff" />
+              <Text style={styles.loadingRowText}>Loading availability...</Text>
+            </View>
+          )) || null}
 
-        {/* Error banner */}
-        {uiError ? (
-          <View style={styles.errorBanner}>
-            <Ionicons name="alert-circle" size={18} color="#fff" />
-            <Text style={styles.errorBannerText}>{uiError}</Text>
-          </View>
-        ) : null}
+          {/* Error banner */}
+          {uiError ? (
+            <View style={styles.errorBanner}>
+              <Ionicons name="alert-circle" size={18} color="#fff" />
+              <Text style={styles.errorBannerText}>{uiError}</Text>
+            </View>
+          ) : null}
 
-        {/* ✅ ORDER: Dates -> Time -> Rooms */}
+          {/* ✅ ORDER: Dates -> Time -> Rooms */}
 
-        {/* Check-in Date */}
-        <Label text="Check-in Date" required />
-        {Platform.OS === 'web' ? (
-          WebDatePicker ? (
-            <WebDatePicker
-              selected={webSelected(checkIn)}
-              onChange={setCheckInWeb}
-              minDate={new Date()}
-              dateFormat="yyyy-MM-dd"
-              placeholderText="Select a date"
-              excludeDates={webExcludeDates}
-              customInput={<input style={webInputStyle} />}
-            />
+          {/* Check-in Date */}
+          <Label text="Check-in Date" required />
+          {Platform.OS === 'web' ? (
+            WebDatePicker ? (
+              <WebDatePicker
+                selected={webSelected(checkIn)}
+                onChange={setCheckInWeb}
+                minDate={new Date()}
+                dateFormat="yyyy-MM-dd"
+                placeholderText="Select a date"
+                excludeDates={webExcludeDates}
+                customInput={<input style={webInputStyle} />}
+              />
+            ) : (
+              <Text style={styles.hint}>Install react-datepicker to show calendar on web.</Text>
+            )
           ) : (
-            <Text style={styles.hint}>Install react-datepicker to show calendar on web.</Text>
-          )
-        ) : (
-          <TouchableOpacity style={styles.pickerInput} onPress={() => openDatePicker('checkIn')}>
-            <Text style={[styles.pickerText, !checkIn && styles.placeholder]}>{checkIn || 'Select a date'}</Text>
-            <Ionicons name="calendar-outline" size={18} color="#2a2250" />
-          </TouchableOpacity>
-        )}
-
-        {/* Check-out Date */}
-        <Label text="Check-out Date" required />
-        {Platform.OS === 'web' ? (
-          WebDatePicker ? (
-            <WebDatePicker
-              selected={webSelected(checkOut)}
-              onChange={setCheckOutWeb}
-              minDate={
-                checkIn
-                  ? (() => {
-                      const d = parseYYYYMMDD(checkIn) || new Date();
-                      d.setDate(d.getDate() + 1);
-                      return d;
-                    })()
-                  : new Date()
-              }
-              dateFormat="yyyy-MM-dd"
-              placeholderText="Select a date"
-              excludeDates={webExcludeDates}
-              customInput={<input style={webInputStyle} />}
-            />
-          ) : (
-            <Text style={styles.hint}>Install react-datepicker to show calendar on web.</Text>
-          )
-        ) : (
-          <TouchableOpacity style={styles.pickerInput} onPress={() => openDatePicker('checkOut')}>
-            <Text style={[styles.pickerText, !checkOut && styles.placeholder]}>{checkOut || 'Select a date'}</Text>
-            <Ionicons name="calendar-outline" size={18} color="#2a2250" />
-          </TouchableOpacity>
-        )}
-
-        {/* Time */}
-        <Label text="Check-in Time" />
-        {Platform.OS === 'web' ? (
-          WebDatePicker ? (
-            <WebDatePicker
-              selected={
-                bookingTime
-                  ? (() => {
-                      const [hh, mm] = bookingTime.split(':').map(Number);
-                      const d = new Date();
-                      d.setHours(hh || 0);
-                      d.setMinutes(mm || 0);
-                      return d;
-                    })()
-                  : null
-              }
-              onChange={(d: Date | null) => {
-                const nextTime = d ? formatTimeHHMM(d) : '';
-                if (checkIn && !validateMinTimeRule(checkIn, nextTime || '10:00')) return;
-
-                const time = nextTime || '10:00';
-                if (checkIn && checkOut && overlapsApproved(checkIn, checkOut, time, blocked)) {
-                  showUiError('Selected date/time overlaps an approved booking. Please select another.');
-                  return;
-                }
-                setBookingTime(nextTime);
-              }}
-              showTimeSelect
-              showTimeSelectOnly
-              timeIntervals={15}
-              timeCaption="Time"
-              dateFormat="HH:mm"
-              placeholderText="Select time"
-              customInput={<input style={webInputStyle} />}
-            />
-          ) : (
-            <Text style={styles.hint}>Install react-datepicker to show time picker on web.</Text>
-          )
-        ) : (
-          <TouchableOpacity style={styles.pickerInput} onPress={openTimePicker}>
-            <Text style={[styles.pickerText, !bookingTime && styles.placeholder]}>{bookingTime || 'Select time'}</Text>
-            <Ionicons name="time-outline" size={18} color="#2a2250" />
-          </TouchableOpacity>
-        )}
-
-        {/* Room dropdown */}
-        <Label text="Room Types" required />
-        {loadingRooms ? (
-          <ActivityIndicator color="#fff" />
-        ) : rooms.length === 0 ? (
-          <Text style={styles.hint}>No rooms available.</Text>
-        ) : (
-          <>
-            <TouchableOpacity
-              style={styles.dropdown}
-              onPress={() => setRoomPickerOpen((v) => !v)}
-              activeOpacity={0.9}
-            >
-              <Text style={styles.dropdownText}>
-                {selectedRoomsList.length === 0 ? 'Select room type(s)' : 'Add another room type'}
-              </Text>
-              <Ionicons name={roomPickerOpen ? 'chevron-up' : 'chevron-down'} size={18} color={BTN_TEXT} />
-            </TouchableOpacity>
-
-            {roomPickerOpen && (
-              <View style={styles.dropdownPanel}>
-                {rooms
-                  .filter((r) => !selectedRoomQty[r.room_Id])
-                  .map((r) => (
-                    <TouchableOpacity
-                      key={r.room_Id}
-                      style={styles.dropdownItem}
-                      onPress={() => addRoomType(r.room_Id)}
-                    >
-                      <Text style={styles.dropdownItemTitle}>Room {r.room_Name}</Text>
-                      <Text style={styles.dropdownItemSub}>
-                        Total {r.room_Count} • Max/room {r.max_Persons} • Rs {r.price_per_person}/person
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-
-                {rooms.filter((r) => !selectedRoomQty[r.room_Id]).length === 0 && (
-                  <Text style={styles.hint}>All room types are already added.</Text>
-                )}
+            <TouchableOpacity style={styles.pickerInput} onPress={() => openDatePicker('checkIn')} activeOpacity={0.9}>
+              <View style={styles.pickerLeft}>
+                <Ionicons name="calendar-outline" size={18} color={YELLOW} />
+                <Text style={[styles.pickerText, !checkIn && styles.placeholder]}>{checkIn || 'Select a date'}</Text>
               </View>
-            )}
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.65)" />
+            </TouchableOpacity>
+          )}
 
-            {selectedRoomsList.length > 0 && (
-              <View style={{ marginTop: 12, gap: 10 }}>
-                {selectedRoomsList.map(({ room, qty }) => {
-                  const cap = qty * room.max_Persons;
-                  return (
-                    <View key={room.room_Id} style={styles.selectedRoomRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.selectedRoomTitle}>Room {room.room_Name}</Text>
-                        <Text style={styles.selectedRoomSub}>
-                          Total {room.room_Count} • Max/room {room.max_Persons} • Rs {room.price_per_person}/person
-                        </Text>
-                      </View>
+          {/* Check-out Date */}
+          <Label text="Check-out Date" required />
+          {Platform.OS === 'web' ? (
+            WebDatePicker ? (
+              <WebDatePicker
+                selected={webSelected(checkOut)}
+                onChange={setCheckOutWeb}
+                minDate={
+                  checkIn
+                    ? (() => {
+                        const d = parseYYYYMMDD(checkIn) || new Date();
+                        d.setDate(d.getDate() + 1);
+                        return d;
+                      })()
+                    : new Date()
+                }
+                dateFormat="yyyy-MM-dd"
+                placeholderText="Select a date"
+                excludeDates={webExcludeDates}
+                customInput={<input style={webInputStyle} />}
+              />
+            ) : (
+              <Text style={styles.hint}>Install react-datepicker to show calendar on web.</Text>
+            )
+          ) : (
+            <TouchableOpacity style={styles.pickerInput} onPress={() => openDatePicker('checkOut')} activeOpacity={0.9}>
+              <View style={styles.pickerLeft}>
+                <Ionicons name="calendar-outline" size={18} color={YELLOW} />
+                <Text style={[styles.pickerText, !checkOut && styles.placeholder]}>{checkOut || 'Select a date'}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.65)" />
+            </TouchableOpacity>
+          )}
 
-                      <View style={styles.stepper}>
-                        <TouchableOpacity
-                          style={[styles.stepBtnCream, qty === 0 && { opacity: 0.6 }]}
-                          onPress={() => decQty(room)}
-                          disabled={qty === 0}
-                          activeOpacity={0.85}
-                        >
-                          <Ionicons name="remove" size={18} color={BTN_TEXT} />
-                        </TouchableOpacity>
+          {/* Time */}
+          <Label text="Check-in Time" />
+          {Platform.OS === 'web' ? (
+            WebDatePicker ? (
+              <WebDatePicker
+                selected={
+                  bookingTime
+                    ? (() => {
+                        const [hh, mm] = bookingTime.split(':').map(Number);
+                        const d = new Date();
+                        d.setHours(hh || 0);
+                        d.setMinutes(mm || 0);
+                        return d;
+                      })()
+                    : null
+                }
+                onChange={(d: Date | null) => {
+                  const nextTime = d ? formatTimeHHMM(d) : '';
+                  if (checkIn && !validateMinTimeRule(checkIn, nextTime || '10:00')) return;
 
-                        <View style={styles.stepCount}>
-                          <Text style={styles.stepCountText}>{qty}</Text>
+                  const time = nextTime || '10:00';
+                  if (checkIn && checkOut && overlapsApproved(checkIn, checkOut, time, blocked)) {
+                    showUiError('Selected date/time overlaps an approved booking. Please select another.');
+                    return;
+                  }
+                  setBookingTime(nextTime);
+                }}
+                showTimeSelect
+                showTimeSelectOnly
+                timeIntervals={15}
+                timeCaption="Time"
+                dateFormat="HH:mm"
+                placeholderText="Select time"
+                customInput={<input style={webInputStyle} />}
+              />
+            ) : (
+              <Text style={styles.hint}>Install react-datepicker to show time picker on web.</Text>
+            )
+          ) : (
+            <TouchableOpacity style={styles.pickerInput} onPress={openTimePicker} activeOpacity={0.9}>
+              <View style={styles.pickerLeft}>
+                <Ionicons name="time-outline" size={18} color={YELLOW} />
+                <Text style={[styles.pickerText, !bookingTime && styles.placeholder]}>{bookingTime || 'Select time'}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.65)" />
+            </TouchableOpacity>
+          )}
+
+          {/* Room dropdown */}
+          <Label text="Room Types" required />
+          {loadingRooms ? (
+            <ActivityIndicator color="#fff" />
+          ) : rooms.length === 0 ? (
+            <Text style={styles.hint}>No rooms available.</Text>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={styles.dropdown}
+                onPress={() => setRoomPickerOpen((v) => !v)}
+                activeOpacity={0.9}
+              >
+                <View style={styles.pickerLeft}>
+                  <Ionicons name="bed-outline" size={18} color={YELLOW} />
+                  <Text style={styles.dropdownText}>
+                    {selectedRoomsList.length === 0 ? 'Select room type(s)' : 'Add another room type'}
+                  </Text>
+                </View>
+                <Ionicons
+                  name={roomPickerOpen ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color="rgba(255,255,255,0.75)"
+                />
+              </TouchableOpacity>
+
+              {roomPickerOpen && (
+                <View style={styles.dropdownPanel}>
+                  {rooms
+                    .filter((r) => !selectedRoomQty[r.room_Id])
+                    .map((r) => (
+                      <TouchableOpacity
+                        key={r.room_Id}
+                        style={styles.dropdownItem}
+                        onPress={() => addRoomType(r.room_Id)}
+                        activeOpacity={0.9}
+                      >
+                        <View style={styles.dropdownItemTop}>
+                          <Text style={styles.dropdownItemTitle}>Room {r.room_Name}</Text>
+                          <View style={styles.smallPill}>
+                            <Text style={styles.smallPillText}>{r.room_Count}</Text>
+                          </View>
                         </View>
 
-                        <TouchableOpacity style={styles.stepBtnCream} onPress={() => incQty(room)} activeOpacity={0.85}>
-                          <Ionicons name="add" size={18} color={BTN_TEXT} />
-                        </TouchableOpacity>
-                      </View>
+                        <Text style={styles.dropdownItemSub}>
+                          Total {r.room_Count} • Max/room {r.max_Persons} • Rs {r.price_per_person}/person
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
 
-                      <View style={{ marginTop: 10, width: '100%' }}>
-                        <Label text={`Guests in ${room.room_Name}`} required />
-                        <Text style={styles.smallHint}>Max {cap} (based on selected rooms)</Text>
-
-                        <TextInput
-                          style={styles.input}
-                          keyboardType="number-pad"
-                          value={String(guestsByRoom[room.room_Id] ?? 0)}
-                          onChangeText={(v) => setGuestsForRoom(room, v, qty)}
-                        />
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-          </>
-        )}
-
-        {/* Purpose */}
-        <Label text="Purpose of Stay" />
-        <TextInput
-          value={purpose}
-          onChangeText={setPurpose}
-          placeholder="e.g., Business meeting, Training..."
-          placeholderTextColor="#8b7d70"
-          style={[styles.input, styles.textArea]}
-          multiline
-        />
-
-        {/* Summary */}
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Booking Summary</Text>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Nights</Text>
-            <Text style={styles.summaryValue}>{nights || '-'}</Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Total Guests</Text>
-            <Text style={styles.summaryValue}>{totalGuestsNum || '-'}</Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Rooms Selected</Text>
-            <Text style={styles.summaryValue}>{totalRoomsSelected || '-'}</Text>
-          </View>
-
-          <View style={styles.summaryDivider} />
-
-          {perRoomTotals.map((x) => (
-            <View key={x.room_Id} style={styles.roomSummaryCard}>
-              <Text style={styles.roomSummaryTitle}>Room {x.room_Name}</Text>
-
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Rooms</Text>
-                <Text style={styles.summaryValue}>{x.qty}</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Guests</Text>
-                <Text style={styles.summaryValue}>{x.guests}</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Price / person</Text>
-                <Text style={styles.summaryValue}>Rs {x.pricePerPerson}</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Subtotal</Text>
-                <Text style={styles.summaryValue}>Rs {x.subtotal}</Text>
-              </View>
-            </View>
-          ))}
-
-          <View style={styles.summaryDivider} />
-
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Estimated Total</Text>
-            <Text style={styles.totalValue}>{grandTotal ? `Rs ${grandTotal}` : '-'}</Text>
-          </View>
-
-          <Text style={styles.summaryNote}>Total = nights × (guests in each room type) × price/person</Text>
-        </View>
-
-        {/* Buttons */}
-        <TouchableOpacity
-          style={[styles.primaryBtn, submitting && { opacity: 0.7 }]}
-          onPress={submitBookingPayLater}
-          disabled={submitting}
-          activeOpacity={0.9}
-        >
-          {submitting ? (
-            <>
-              <ActivityIndicator color={BTN_TEXT} />
-              <Text style={styles.primaryBtnText}>Submitting...</Text>
-            </>
-          ) : (
-            <>
-              <Ionicons name="checkmark-circle-outline" size={18} color={BTN_TEXT} />
-              <Text style={styles.primaryBtnText}>Submit Booking (Pay Later)</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.secondaryBtn, submitting && { opacity: 0.7 }]}
-          onPress={continueToPaymentNow}
-          disabled={submitting}
-          activeOpacity={0.9}
-        >
-          <Ionicons name="card-outline" size={18} color={CREAM_INPUT} />
-          <Text style={styles.secondaryBtnText}>Continue to Payment</Text>
-        </TouchableOpacity>
-
-        {!!minTimeForSelectedCheckIn && (
-          <Text style={styles.smallHint}>
-            Note: On {checkIn}, check-in allowed only after {minTimeForSelectedCheckIn}.
-          </Text>
-        )}
-      </View>
-
-      {/* ✅ Center popup */}
-      <Modal visible={popupVisible} transparent animationType="fade" onRequestClose={() => setPopupVisible(false)}>
-        <View style={styles.popupOverlay}>
-          <View style={styles.popupCard}>
-            <Ionicons name="alert-circle" size={22} color="#fff" />
-            <Text style={styles.popupText}>{popupMessage}</Text>
-            <TouchableOpacity style={styles.popupBtn} onPress={() => setPopupVisible(false)} activeOpacity={0.85}>
-              <Text style={styles.popupBtnText}>OK</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Submitting overlay */}
-      <Modal visible={submitting} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.submittingCard}>
-            <ActivityIndicator color={YELLOW} />
-            <Text style={styles.submittingTitle}>Processing...</Text>
-            <Text style={styles.submittingSub}>Please wait. Do not refresh or go back.</Text>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ✅ Picker modal (Mobile uses Calendar for dates; DateTimePicker for time) */}
-      {Platform.OS !== 'web' && (
-        <Modal visible={pickerOpen} transparent animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>
-                {pickerMode === 'date'
-                  ? pickerTarget === 'checkIn'
-                    ? 'Select Check-in Date'
-                    : 'Select Check-out Date'
-                  : 'Select Check-in Time'}
-              </Text>
-
-              {pickerMode === 'date' ? (
-                <Calendar
-                  markingType="custom"
-                  markedDates={markedDatesForMobile}
-                  minDate={formatDateYYYYMMDD(new Date())}
-                  onDayPress={(day) => {
-                    const picked = String(day.dateString || '').slice(0, 10);
-                    if (!picked) return;
-
-                    // blocked
-                    if (blockedDaysSet.has(picked)) {
-                      showUiError('This date is already booked (Approved). Please select another date.');
-                      return;
-                    }
-
-                    if (pickerTarget === 'checkIn') {
-                      setCheckIn(picked);
-
-                      // auto checkout next day
-                      if (!checkOut || checkOut <= picked) {
-                        const d = parseYYYYMMDD(picked) || new Date();
-                        const next = addDays(d, 1);
-                        setCheckOut(formatDateYYYYMMDD(next));
-                      }
-
-                      // reset room selection on date change
-                      setSelectedRoomQty({});
-                      setGuestsByRoom({});
-                      setPickerOpen(false);
-                      return;
-                    }
-
-                    if (pickerTarget === 'checkOut') {
-                      if (checkIn && picked <= checkIn) {
-                        showUiError('Check-out must be after check-in.');
-                        return;
-                      }
-
-                      // overlap check
-                      const time = bookingTime || '10:00';
-                      if (checkIn && overlapsApproved(checkIn, picked, time, blocked)) {
-                        showUiError('This stay overlaps an approved booking. Please change dates/time.');
-                        return;
-                      }
-
-                      setCheckOut(picked);
-                      setSelectedRoomQty({});
-                      setGuestsByRoom({});
-                      setPickerOpen(false);
-                      return;
-                    }
-                  }}
-                />
-              ) : (
-                <DateTimePicker
-                  value={tempPickerValue}
-                  mode="time"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  onChange={(_, date) => {
-                    if (date) setTempPickerValue(date);
-                  }}
-                />
+                  {rooms.filter((r) => !selectedRoomQty[r.room_Id]).length === 0 && (
+                    <Text style={styles.hint}>All room types are already added.</Text>
+                  )}
+                </View>
               )}
 
-              <View style={styles.modalBtns}>
-                <TouchableOpacity style={[styles.modalBtn, styles.modalBtnGhost]} onPress={() => setPickerOpen(false)}>
-                  <Text style={styles.modalBtnGhostText}>Cancel</Text>
-                </TouchableOpacity>
+              {selectedRoomsList.length > 0 && (
+                <View style={{ marginTop: 12, gap: 10 }}>
+                  {selectedRoomsList.map(({ room, qty }) => {
+                    const cap = qty * room.max_Persons;
+                    return (
+                      <View key={room.room_Id} style={styles.selectedRoomRow}>
+                        <View style={styles.selectedRoomHeader}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.selectedRoomTitle}>Room {room.room_Name}</Text>
+                            <Text style={styles.selectedRoomSub}>
+                              Total {room.room_Count} • Max/room {room.max_Persons} • Rs {room.price_per_person}/person
+                            </Text>
+                          </View>
 
-                {pickerMode === 'time' ? (
-                  <TouchableOpacity style={styles.modalBtn} onPress={applyTimePicker}>
-                    <Text style={styles.modalBtnText}>Done</Text>
-                  </TouchableOpacity>
-                ) : null}
+                          <View style={styles.stepper}>
+                            <TouchableOpacity
+                              style={[styles.stepBtn, qty === 0 && { opacity: 0.6 }]}
+                              onPress={() => decQty(room)}
+                              disabled={qty === 0}
+                              activeOpacity={0.85}
+                            >
+                              <Ionicons name="remove" size={18} color={NAVY} />
+                            </TouchableOpacity>
+
+                            <View style={styles.stepCount}>
+                              <Text style={styles.stepCountText}>{qty}</Text>
+                            </View>
+
+                            <TouchableOpacity style={styles.stepBtn} onPress={() => incQty(room)} activeOpacity={0.85}>
+                              <Ionicons name="add" size={18} color={NAVY} />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+
+                        <View style={{ marginTop: 10, width: '100%' }}>
+                          <Label text={`Guests in ${room.room_Name}`} required />
+                          <Text style={styles.smallHint}>Max {cap} (based on selected rooms)</Text>
+
+                          <TextInput
+                            style={styles.input}
+                            keyboardType="number-pad"
+                            value={String(guestsByRoom[room.room_Id] ?? 0)}
+                            onChangeText={(v) => setGuestsForRoom(room, v, qty)}
+                          />
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </>
+          )}
+
+          {/* Purpose */}
+          <Label text="Purpose of Stay" />
+          <TextInput
+            value={purpose}
+            onChangeText={setPurpose}
+            placeholder="e.g., Business meeting, Training..."
+            placeholderTextColor="rgba(255,255,255,0.45)"
+            style={[styles.input, styles.textArea]}
+            multiline
+          />
+
+          {/* Summary */}
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryTitle}>Booking Summary</Text>
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Nights</Text>
+              <Text style={styles.summaryValue}>{nights || '-'}</Text>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Total Guests</Text>
+              <Text style={styles.summaryValue}>{totalGuestsNum || '-'}</Text>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Rooms Selected</Text>
+              <Text style={styles.summaryValue}>{totalRoomsSelected || '-'}</Text>
+            </View>
+
+            <View style={styles.summaryDivider} />
+
+            {perRoomTotals.map((x) => (
+              <View key={x.room_Id} style={styles.roomSummaryCard}>
+                <Text style={styles.roomSummaryTitle}>Room {x.room_Name}</Text>
+
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Rooms</Text>
+                  <Text style={styles.summaryValue}>{x.qty}</Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Guests</Text>
+                  <Text style={styles.summaryValue}>{x.guests}</Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Price / person</Text>
+                  <Text style={styles.summaryValue}>Rs {x.pricePerPerson}</Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Subtotal</Text>
+                  <Text style={styles.summaryValue}>Rs {x.subtotal}</Text>
+                </View>
               </View>
+            ))}
+
+            <View style={styles.summaryDivider} />
+
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Estimated Total</Text>
+              <Text style={styles.totalValue}>{grandTotal ? `Rs ${grandTotal}` : '-'}</Text>
+            </View>
+
+            <Text style={styles.summaryNote}>Total = nights × (guests in each room type) × price/person</Text>
+          </View>
+
+          {/* Buttons */}
+          <TouchableOpacity
+            style={[styles.primaryBtn, submitting && { opacity: 0.7 }]}
+            onPress={submitBookingPayLater}
+            disabled={submitting}
+            activeOpacity={0.9}
+          >
+            {submitting ? (
+              <>
+                <ActivityIndicator color={NAVY} />
+                <Text style={styles.primaryBtnText}>Submitting...</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="checkmark-circle-outline" size={18} color={NAVY} />
+                <Text style={styles.primaryBtnText}>Submit Booking (Pay Later)</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.secondaryBtn, submitting && { opacity: 0.7 }]}
+            onPress={continueToPaymentNow}
+            disabled={submitting}
+            activeOpacity={0.9}
+          >
+            <Ionicons name="card-outline" size={18} color={YELLOW} />
+            <Text style={styles.secondaryBtnText}>Continue to Payment</Text>
+          </TouchableOpacity>
+
+          {!!minTimeForSelectedCheckIn && (
+            <Text style={styles.smallHint}>
+              Note: On {checkIn}, check-in allowed only after {minTimeForSelectedCheckIn}.
+            </Text>
+          )}
+        </View>
+
+        {/* ✅ Center popup */}
+        <Modal visible={popupVisible} transparent animationType="fade" onRequestClose={() => setPopupVisible(false)}>
+          <View style={styles.popupOverlay}>
+            <View style={styles.popupCard}>
+              <Ionicons name="alert-circle" size={22} color="#fff" />
+              <Text style={styles.popupText}>{popupMessage}</Text>
+              <TouchableOpacity style={styles.popupBtn} onPress={() => setPopupVisible(false)} activeOpacity={0.85}>
+                <Text style={styles.popupBtnText}>OK</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </Modal>
-      )}
-    </ScrollView>
+
+        {/* Submitting overlay */}
+        <Modal visible={submitting} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.submittingCard}>
+              <ActivityIndicator color={YELLOW} />
+              <Text style={styles.submittingTitle}>Processing...</Text>
+              <Text style={styles.submittingSub}>Please wait. Do not refresh or go back.</Text>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ✅ Picker modal (Mobile uses Calendar for dates; DateTimePicker for time) */}
+        {Platform.OS !== 'web' && (
+          <Modal visible={pickerOpen} transparent animationType="fade">
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalCard}>
+                <Text style={styles.modalTitle}>
+                  {pickerMode === 'date'
+                    ? pickerTarget === 'checkIn'
+                      ? 'Select Check-in Date'
+                      : 'Select Check-out Date'
+                    : 'Select Check-in Time'}
+                </Text>
+
+                {pickerMode === 'date' ? (
+                  <Calendar
+                    markingType="custom"
+                    markedDates={markedDatesForMobile}
+                    minDate={formatDateYYYYMMDD(new Date())}
+                    onDayPress={(day) => {
+                      const picked = String(day.dateString || '').slice(0, 10);
+                      if (!picked) return;
+
+                      // blocked
+                      if (blockedDaysSet.has(picked)) {
+                        showUiError('This date is already booked (Approved). Please select another date.');
+                        return;
+                      }
+
+                      if (pickerTarget === 'checkIn') {
+                        setCheckIn(picked);
+
+                        // auto checkout next day
+                        if (!checkOut || checkOut <= picked) {
+                          const d = parseYYYYMMDD(picked) || new Date();
+                          const next = addDays(d, 1);
+                          setCheckOut(formatDateYYYYMMDD(next));
+                        }
+
+                        // reset room selection on date change
+                        setSelectedRoomQty({});
+                        setGuestsByRoom({});
+                        setPickerOpen(false);
+                        return;
+                      }
+
+                      if (pickerTarget === 'checkOut') {
+                        if (checkIn && picked <= checkIn) {
+                          showUiError('Check-out must be after check-in.');
+                          return;
+                        }
+
+                        // overlap check
+                        const time = bookingTime || '10:00';
+                        if (checkIn && overlapsApproved(checkIn, picked, time, blocked)) {
+                          showUiError('This stay overlaps an approved booking. Please change dates/time.');
+                          return;
+                        }
+
+                        setCheckOut(picked);
+                        setSelectedRoomQty({});
+                        setGuestsByRoom({});
+                        setPickerOpen(false);
+                        return;
+                      }
+                    }}
+                  />
+                ) : (
+                  <DateTimePicker
+                    value={tempPickerValue}
+                    mode="time"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={(_, date) => {
+                      if (date) setTempPickerValue(date);
+                    }}
+                  />
+                )}
+
+                <View style={styles.modalBtns}>
+                  <TouchableOpacity style={[styles.modalBtnGhost]} onPress={() => setPickerOpen(false)} activeOpacity={0.9}>
+                    <Text style={styles.modalBtnGhostText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  {pickerMode === 'time' ? (
+                    <TouchableOpacity style={styles.modalBtn} onPress={applyTimePicker} activeOpacity={0.9}>
+                      <Text style={styles.modalBtnText}>Done</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
+      </ScrollView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    paddingTop: 60,
-    paddingBottom: 30,
+    paddingTop: 80,
+    paddingBottom: 40,
     paddingHorizontal: '6%',
-    backgroundColor: NAVY,
     flexGrow: 1,
   },
-  headerBack: { position: 'absolute', top: 20, left: 16, zIndex: 10, padding: 4 },
+
+  headerBack: {
+    position: 'absolute',
+    top: 30,
+    left: 16,
+    zIndex: 10,
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
 
   topCard: {
     backgroundColor: BLACK_BOX,
-    borderRadius: 18,
-    padding: 14,
-    marginTop: 20,
+    borderRadius: 22,
+    padding: 16,
+    marginTop: 10,
     borderWidth: 1,
-    borderColor: CARD_EDGE,
+    borderColor: 'rgba(255,255,255,0.10)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    elevation: 7,
   },
-  circuitTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', textAlign: 'center' },
-  locationRow: { marginTop: 6, flexDirection: 'row', justifyContent: 'center', gap: 6, alignItems: 'center' },
-  locationText: { color: '#E2DCD2', fontSize: 13, fontWeight: '500' },
 
-  formCard: { backgroundColor: BLACK_BOX, borderRadius: 18, padding: 16, marginTop: 16 },
-  formTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', textAlign: 'center', marginBottom: 10 },
+  circuitTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+
+  locationRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+    alignItems: 'center',
+  },
+
+  locationText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  formCard: {
+    backgroundColor: 'rgba(10,10,26,0.88)',
+    borderRadius: 22,
+    padding: 18,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    elevation: 7,
+  },
+
+  formTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+
+  loadingRow: {
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+
+  loadingRowText: {
+    color: '#fff',
+    fontWeight: '800',
+  },
 
   errorBanner: {
     backgroundColor: '#B00020',
-    borderRadius: 12,
+    borderRadius: 14,
     paddingVertical: 10,
     paddingHorizontal: 12,
     flexDirection: 'row',
@@ -1251,71 +1345,434 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ffffff33',
   },
-  errorBannerText: { color: '#fff', fontWeight: '800', flex: 1, fontSize: 13 },
 
-  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 6 },
-  label: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
-  requiredPill: { backgroundColor: '#2C2750', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
-  requiredPillText: { color: CREAM_INPUT, fontSize: 11, fontWeight: '600' },
+  errorBannerText: {
+    color: '#fff',
+    fontWeight: '900',
+    flex: 1,
+    fontSize: 13,
+  },
 
-  smallHint: { color: '#B8B0A5', fontSize: 12, marginTop: 8, fontStyle: 'italic' },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 14,
+    marginBottom: 6,
+  },
 
-  input: { backgroundColor: CREAM_INPUT, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: BTN_TEXT, fontWeight: '600' },
-  textArea: { minHeight: 90, textAlignVertical: 'top', paddingTop: 12 },
+  label: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
 
-  pickerInput: { backgroundColor: CREAM_INPUT, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  pickerText: { color: BTN_TEXT, fontWeight: '600' },
-  placeholder: { color: '#8b7d70', fontWeight: '500' },
+  requiredPill: {
+    backgroundColor: 'rgba(255,182,0,0.14)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,182,0,0.35)',
+  },
 
-  hint: { color: '#B8B0A5', fontSize: 12, marginTop: 6, fontStyle: 'italic' },
+  requiredPillText: {
+    color: YELLOW,
+    fontSize: 11,
+    fontWeight: '900',
+  },
 
-  dropdown: { backgroundColor: CREAM_INPUT, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  dropdownText: { color: BTN_TEXT, fontWeight: '600' },
-  dropdownPanel: { marginTop: 10, backgroundColor: PANEL, borderRadius: 14, padding: 10, borderWidth: 1, borderColor: CARD_EDGE, gap: 8 },
-  dropdownItem: { backgroundColor: BLACK_BOX, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: CARD_EDGE },
-  dropdownItemTitle: { color: '#FFFFFF', fontWeight: '700', marginBottom: 4 },
-  dropdownItemSub: { color: '#E2DCD2', fontSize: 12, fontWeight: '500' },
+  hint: {
+    color: 'rgba(255,255,255,0.60)',
+    fontSize: 12,
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
 
-  selectedRoomRow: { backgroundColor: PANEL, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: CARD_EDGE },
-  selectedRoomTitle: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  selectedRoomSub: { color: '#E2DCD2', fontSize: 12, fontWeight: '500', marginTop: 4 },
+  smallHint: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 12,
+    marginTop: 8,
+    fontStyle: 'italic',
+    lineHeight: 16,
+  },
 
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
-  stepBtnCream: { backgroundColor: CREAM_INPUT, width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  stepCount: { flex: 1, height: 36, borderRadius: 10, borderWidth: 1, borderColor: CARD_EDGE, alignItems: 'center', justifyContent: 'center' },
-  stepCountText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  pickerInput: {
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
 
-  summaryCard: { marginTop: 16, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: CARD_EDGE, backgroundColor: PANEL },
-  summaryTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginBottom: 10, textAlign: 'center' },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4 },
-  summaryLabel: { color: '#B8B0A5', fontSize: 13, fontWeight: '500' },
-  summaryValue: { color: '#EDE7DC', fontSize: 13, fontWeight: '600' },
-  summaryDivider: { height: 1, backgroundColor: CARD_EDGE, marginVertical: 10 },
-  roomSummaryCard: { backgroundColor: BLACK_BOX, borderRadius: 12, padding: 10, marginTop: 10, borderWidth: 1, borderColor: CARD_EDGE },
-  roomSummaryTitle: { color: CREAM_INPUT, fontSize: 14, fontWeight: '700', marginBottom: 6 },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
-  totalLabel: { color: CREAM_INPUT, fontSize: 14, fontWeight: '600' },
-  totalValue: { color: YELLOW, fontSize: 16, fontWeight: '700' },
-  summaryNote: { marginTop: 10, color: '#B8B0A5', fontSize: 11, fontStyle: 'italic', lineHeight: 14 },
+  pickerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
 
-  primaryBtn: { marginTop: 16, backgroundColor: YELLOW, borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
-  primaryBtnText: { color: BTN_TEXT, fontSize: 14, fontWeight: '700' },
+  pickerText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
 
-  secondaryBtn: { marginTop: 10, borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, borderWidth: 1, borderColor: CARD_EDGE, backgroundColor: 'transparent' },
-  secondaryBtnText: { color: CREAM_INPUT, fontSize: 14, fontWeight: '700' },
+  placeholder: {
+    color: 'rgba(255,255,255,0.45)',
+    fontWeight: '700',
+  },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', paddingHorizontal: 18 },
-  submittingCard: { backgroundColor: BLACK_BOX, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: CARD_EDGE, alignItems: 'center', gap: 10 },
-  submittingTitle: { color: '#FFFFFF', fontWeight: '700', fontSize: 14, textAlign: 'center' },
-  submittingSub: { color: '#B8B0A5', fontSize: 12, textAlign: 'center' },
+  input: {
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
 
-  modalCard: { backgroundColor: BLACK_BOX, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: CARD_EDGE },
-  modalTitle: { color: '#FFFFFF', fontWeight: '700', fontSize: 14, textAlign: 'center', marginBottom: 10 },
-  modalBtns: { marginTop: 12, flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
-  modalBtn: { backgroundColor: YELLOW, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10 },
-  modalBtnText: { color: BTN_TEXT, fontWeight: '700' },
-  modalBtnGhost: { backgroundColor: 'transparent', borderWidth: 1, borderColor: CARD_EDGE },
-  modalBtnGhostText: { color: CREAM_INPUT, fontWeight: '600' },
+  textArea: {
+    minHeight: 95,
+    textAlignVertical: 'top',
+    paddingTop: 12,
+  },
+
+  dropdown: {
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  dropdownText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+
+  dropdownPanel: {
+    marginTop: 10,
+    backgroundColor: 'rgba(10,10,26,0.98)',
+    borderRadius: 16,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    gap: 10,
+  },
+
+  dropdownItem: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+
+  dropdownItemTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+
+  dropdownItemTitle: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    marginBottom: 6,
+  },
+
+  dropdownItemSub: {
+    color: 'rgba(255,255,255,0.70)',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+
+  smallPill: {
+    backgroundColor: 'rgba(255,182,0,0.14)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,182,0,0.35)',
+  },
+
+  smallPillText: {
+    color: YELLOW,
+    fontWeight: '900',
+    fontSize: 12,
+  },
+
+  selectedRoomRow: {
+    backgroundColor: 'rgba(10,10,26,0.70)',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+
+  selectedRoomHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+
+  selectedRoomTitle: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 14,
+  },
+
+  selectedRoomSub: {
+    color: 'rgba(255,255,255,0.70)',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
+    lineHeight: 16,
+  },
+
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 2,
+  },
+
+  stepBtn: {
+    backgroundColor: YELLOW,
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  stepCount: {
+    width: 44,
+    height: 38,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  stepCountText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 14,
+  },
+
+  summaryCard: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(10,10,26,0.70)',
+  },
+
+  summaryTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+
+  summaryLabel: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  summaryValue: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+
+  summaryDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    marginVertical: 10,
+  },
+
+  roomSummaryCard: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+
+  roomSummaryTitle: {
+    color: YELLOW,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+
+  totalLabel: {
+    color: 'rgba(255,255,255,0.80)',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+
+  totalValue: {
+    color: YELLOW,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  summaryNote: {
+    marginTop: 10,
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
+    fontStyle: 'italic',
+    lineHeight: 14,
+  },
+
+  primaryBtn: {
+    marginTop: 16,
+    backgroundColor: YELLOW,
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+
+  primaryBtnText: {
+    color: NAVY,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  secondaryBtn: {
+    marginTop: 10,
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,182,0,0.45)',
+    backgroundColor: 'rgba(255,182,0,0.10)',
+  },
+
+  secondaryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+
+  submittingCard: {
+    backgroundColor: 'rgba(10,10,26,0.98)',
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    alignItems: 'center',
+    gap: 10,
+  },
+
+  submittingTitle: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+
+  submittingSub: {
+    color: 'rgba(255,255,255,0.70)',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+
+  modalCard: {
+    backgroundColor: 'rgba(10,10,26,0.98)',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+
+  modalTitle: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+
+  modalBtns: {
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+
+  modalBtn: {
+    backgroundColor: YELLOW,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+
+  modalBtnText: {
+    color: NAVY,
+    fontWeight: '900',
+  },
+
+  modalBtnGhost: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+
+  modalBtnGhostText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
 
   popupOverlay: {
     flex: 1,
@@ -1324,18 +1781,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 18,
   },
+
   popupCard: {
     width: '100%',
     maxWidth: 360,
     backgroundColor: '#B00020',
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 16,
     borderWidth: 1,
     borderColor: '#ffffff33',
     alignItems: 'center',
     gap: 10,
   },
-  popupText: { color: '#fff', fontWeight: '800', textAlign: 'center', fontSize: 14, lineHeight: 18 },
-  popupBtn: { marginTop: 6, backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 },
-  popupBtnText: { color: '#B00020', fontWeight: '900' },
+
+  popupText: {
+    color: '#fff',
+    fontWeight: '900',
+    textAlign: 'center',
+    fontSize: 14,
+    lineHeight: 18,
+  },
+
+  popupBtn: {
+    marginTop: 6,
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+
+  popupBtnText: {
+    color: '#B00020',
+    fontWeight: '900',
+  },
 });

@@ -1,19 +1,28 @@
 // app/UploadSlip.tsx
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+  Platform,
+  SafeAreaView,
+  Pressable,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import { API_URL } from './config';
 import { useBookingDraft } from './context/BookingDraftContext';
 
 const NAVY = '#020038';
-const BLACK_BOX = '#050515';
-const CARD_EDGE = '#2C2750';
-const CREAM_INPUT = '#FFEBD3';
 const YELLOW = '#FFB600';
-const BTN_TEXT = '#00113D';
+const MUTED = 'rgba(255,255,255,0.70)';
+const MUTED2 = 'rgba(255,255,255,0.45)';
 
 type PickedFile = {
   uri: string;
@@ -23,14 +32,12 @@ type PickedFile = {
 };
 
 async function buildFormDataWeb(file: PickedFile, fields: Record<string, string>) {
-  // On web, file.uri is often blob:http://...
   const fd = new FormData();
-
   Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
 
   const resp = await fetch(file.uri);
   const blob = await resp.blob();
-  fd.append('file', blob, file.name); // ✅ field must be "file"
+  fd.append('file', blob, file.name);
   return fd;
 }
 
@@ -54,14 +61,14 @@ export default function UploadSlip() {
 
   const { draft, patchDraft } = useBookingDraft();
 
-  // bookingId priority: route param -> draft.booking_ids[0]
   const bookingId = bookingIdParam || Number(draft?.booking_ids?.[0] || 0);
-
-  // amount priority: route param -> draft.grandTotal
   const amount = amountParam || Number(draft?.grandTotal || 0);
 
   const [file, setFile] = useState<PickedFile | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const [hoverPickImage, setHoverPickImage] = useState(false);
+  const [hoverPickPdf, setHoverPickPdf] = useState(false);
 
   const amountText = useMemo(() => {
     return amount ? `Rs ${amount}` : '-';
@@ -86,8 +93,7 @@ export default function UploadSlip() {
 
       const name = asset.fileName || `slip_${Date.now()}.jpg`;
       setFile({ uri: asset.uri, name, mimeType: asset.mimeType || 'image/jpeg' });
-    } catch (e) {
-      console.log('pickImage error:', e);
+    } catch {
       Alert.alert('Error', 'Unable to pick image');
     }
   };
@@ -110,23 +116,14 @@ export default function UploadSlip() {
         mimeType: doc.mimeType || 'application/pdf',
         size: doc.size,
       });
-    } catch (e) {
-      console.log('pickPdf error:', e);
+    } catch {
       Alert.alert('Error', 'Unable to pick PDF');
     }
   };
 
   const submit = async () => {
-    if (!bookingId) {
-      Alert.alert('Error', 'Missing bookingId. Please go back and try again.');
-      return;
-    }
-    if (!amount || amount <= 0) {
-      Alert.alert('Error', 'Amount is 0. Please go back and try again.');
-      return;
-    }
-    if (!file) {
-      Alert.alert('Required', 'Please upload payment proof (image or PDF).');
+    if (!bookingId || !amount || !file) {
+      Alert.alert('Error', 'Please complete all required steps.');
       return;
     }
 
@@ -149,122 +146,252 @@ export default function UploadSlip() {
         body: formData,
       });
 
-      const data = await res.json().catch(() => ({}));
-      console.log('upload-slip response:', { ok: res.ok, status: res.status, data });
-
       if (!res.ok) {
-        Alert.alert('Upload failed', data?.message || 'Server error');
+        Alert.alert('Upload failed');
         return;
       }
 
       patchDraft({ paymentProofUploaded: true });
       setFile(null);
-
       router.replace('/PaymentSubmitted');
-    } catch (e) {
-      console.log('submit error:', e);
-      Alert.alert('Error', 'Unable to submit slip');
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <View style={styles.container}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-        <Ionicons name="chevron-back" size={28} color="#FFFFFF" />
-      </TouchableOpacity>
+    <LinearGradient colors={['#020038', '#05004A', '#020038']} style={styles.background}>
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.container}>
+          <TouchableOpacity style={styles.headerBack} onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
+          </TouchableOpacity>
 
-      <Text style={styles.title}>Upload Payment Slip</Text>
-
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <Text style={styles.label}>Amount</Text>
-          <Text style={styles.value}>{amountText}</Text>
-        </View>
-
-        <View style={styles.row}>
-          <Text style={styles.label}>Method</Text>
-          <Text style={styles.value}>Bank Transfer</Text>
-        </View>
-
-        <View style={styles.divider} />
-
-        <Text style={styles.sectionTitle}>Upload Proof</Text>
-
-        <TouchableOpacity style={styles.pickBtn} onPress={pickImage} activeOpacity={0.9}>
-          <Ionicons name="image-outline" size={18} color={BTN_TEXT} />
-          <Text style={styles.pickBtnText}>Choose Image</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.pickBtnOutline} onPress={pickPdf} activeOpacity={0.9}>
-          <Ionicons name="document-outline" size={18} color={CREAM_INPUT} />
-          <Text style={styles.pickBtnOutlineText}>Choose PDF</Text>
-        </TouchableOpacity>
-
-        {file ? (
-          <View style={styles.fileBox}>
-            <Ionicons name="attach-outline" size={16} color={CREAM_INPUT} />
-            <Text style={styles.fileText} numberOfLines={2}>
-              {file.name}
+          <View style={styles.topHeaderCard}>
+            <Text style={styles.topTitle}>Upload Payment Slip</Text>
+            <Text style={styles.topSub}>
+              Transfer the payment using the details below, then upload your slip.
             </Text>
           </View>
-        ) : (
-          <Text style={styles.hint}>No file selected yet.</Text>
-        )}
 
-        <TouchableOpacity
-          style={[styles.submitBtn, submitting && { opacity: 0.7 }]}
-          onPress={submit}
-          disabled={submitting}
-          activeOpacity={0.9}
-        >
-          {submitting ? (
-            <>
-              <ActivityIndicator color={BTN_TEXT} />
-              <Text style={styles.submitText}>Submitting...</Text>
-            </>
-          ) : (
-            <>
-              <Ionicons name="cloud-upload-outline" size={18} color={BTN_TEXT} />
-              <Text style={styles.submitText}>Submit Proof</Text>
-            </>
-          )}
-        </TouchableOpacity>
+          {/* ✅ UPDATED BANK DETAILS SECTION */}
+          <View style={styles.bankCard}>
+            <View style={styles.bankHeader}>
+              <Ionicons name="business-outline" size={18} color={YELLOW} />
+              <Text style={styles.bankTitle}>Bank Details</Text>
+            </View>
 
-        <Text style={styles.footerHint}>
-          {Platform.OS === 'web'
-            ? 'Tip: PDF upload works best on web. Image upload works everywhere.'
-            : 'Tip: Upload a clear image or PDF of the bank slip.'}
-        </Text>
-      </View>
-    </View>
+            <View style={styles.bankItem}>
+              <Text style={styles.bankLabel}>Bank</Text>
+              <Text style={styles.bankValue}>Mock National Bank</Text>
+            </View>
+
+            <View style={styles.bankItem}>
+              <Text style={styles.bankLabel}>Account Name</Text>
+              <Text style={styles.bankValue}>R22 Booster (Pvt) Ltd</Text>
+            </View>
+
+            <View style={styles.bankItem}>
+              <Text style={styles.bankLabel}>Account Number</Text>
+              <Text style={styles.bankValue}>123 456 7890</Text>
+            </View>
+
+            <View style={styles.bankItem}>
+              <Text style={styles.bankLabel}>Branch</Text>
+              <Text style={styles.bankValue}>Colombo 07</Text>
+            </View>
+          </View>
+
+          {/* Booking Summary */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Your Booking Summary</Text>
+            <View style={styles.kvRow}>
+              <Text style={styles.kLabel}>Amount</Text>
+              <Text style={styles.kValue}>{amountText}</Text>
+            </View>
+            <View style={styles.kvRow}>
+              <Text style={styles.kLabel}>Method</Text>
+              <Text style={styles.kValue}>Bank Transfer</Text>
+            </View>
+          </View>
+
+          {/* Upload Proof */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Upload Proof</Text>
+
+            <Pressable
+              onPress={pickImage}
+              onHoverIn={() => setHoverPickImage(true)}
+              onHoverOut={() => setHoverPickImage(false)}
+              style={[
+                styles.actionBtnBase,
+                hoverPickImage ? styles.actionBtnActive : styles.actionBtnIdle,
+              ]}
+            >
+              <Ionicons
+                name="image-outline"
+                size={18}
+                color={hoverPickImage ? NAVY : YELLOW}
+              />
+              <Text
+                style={hoverPickImage ? styles.actionBtnTextActive : styles.actionBtnTextIdle}
+              >
+                Choose Image
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={pickPdf}
+              onHoverIn={() => setHoverPickPdf(true)}
+              onHoverOut={() => setHoverPickPdf(false)}
+              style={[
+                styles.actionBtnBase,
+                { marginTop: 10 },
+                hoverPickPdf ? styles.actionBtnActive : styles.actionBtnIdle,
+              ]}
+            >
+              <Ionicons
+                name="document-outline"
+                size={18}
+                color={hoverPickPdf ? NAVY : YELLOW}
+              />
+              <Text
+                style={hoverPickPdf ? styles.actionBtnTextActive : styles.actionBtnTextIdle}
+              >
+                Choose PDF
+              </Text>
+            </Pressable>
+
+            {file && (
+              <View style={styles.fileBox}>
+                <Ionicons name="attach-outline" size={16} color={YELLOW} />
+                <Text style={styles.fileText}>{file.name}</Text>
+              </View>
+            )}
+
+            <TouchableOpacity style={styles.submitBtn} onPress={submit} disabled={submitting}>
+              {submitting ? (
+                <ActivityIndicator color={NAVY} />
+              ) : (
+                <>
+                  <Ionicons name="cloud-upload-outline" size={18} color={NAVY} />
+                  <Text style={styles.submitText}>Submit Proof</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
+/* ================= STYLES ================= */
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: NAVY, paddingTop: 60, paddingHorizontal: '6%' },
-  backBtn: { position: 'absolute', top: 20, left: 16, padding: 4, zIndex: 10 },
-  title: { color: '#FFFFFF', fontSize: 18, fontWeight: '900', textAlign: 'center', marginBottom: 14 },
-  card: { backgroundColor: BLACK_BOX, borderRadius: 18, padding: 16, borderWidth: 1, borderColor: CARD_EDGE },
-  row: { flexDirection: 'row', justifyContent: 'space-between', marginVertical: 4 },
-  label: { color: '#B8B0A5', fontWeight: '700', fontSize: 12 },
-  value: { color: '#EDE7DC', fontWeight: '900', fontSize: 12 },
-  divider: { height: 1, backgroundColor: CARD_EDGE, marginVertical: 10 },
-  sectionTitle: { color: CREAM_INPUT, fontWeight: '900', marginBottom: 10 },
+  background: { flex: 1 },
+  safe: { flex: 1 },
 
-  pickBtn: { backgroundColor: YELLOW, borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
-  pickBtnText: { color: BTN_TEXT, fontWeight: '900' },
+  container: { flex: 1, paddingHorizontal: '7%', paddingTop: 78, gap: 12 },
 
-  pickBtnOutline: { marginTop: 10, borderWidth: 1, borderColor: CARD_EDGE, backgroundColor: 'transparent', borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
-  pickBtnOutlineText: { color: CREAM_INPUT, fontWeight: '900' },
+  headerBack: {
+    position: 'absolute',
+    top: 30,
+    left: 16,
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    zIndex: 20,
+  },
 
-  fileBox: { marginTop: 12, borderWidth: 1, borderColor: CARD_EDGE, borderRadius: 10, padding: 10, flexDirection: 'row', gap: 8, alignItems: 'center' },
-  fileText: { color: '#EDE7DC', fontWeight: '700', flex: 1 },
-  hint: { marginTop: 10, color: '#B8B0A5', fontStyle: 'italic', fontWeight: '600', fontSize: 12 },
+  topHeaderCard: {
+    backgroundColor: 'rgba(10,10,26,0.88)',
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  topTitle: { color: '#fff', fontSize: 20, fontWeight: '900', textAlign: 'center' },
+  topSub: { color: MUTED, fontSize: 12, textAlign: 'center', marginTop: 6 },
 
-  submitBtn: { marginTop: 14, backgroundColor: YELLOW, borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
-  submitText: { color: BTN_TEXT, fontWeight: '900' },
+  /* ✅ Updated bank styles */
+  bankCard: {
+    backgroundColor: 'rgba(79, 85, 112, 0.35)',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  bankHeader: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  bankTitle: { color: '#fff', fontWeight: '900' },
+  bankItem: {
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  bankLabel: { color: MUTED2, fontSize: 12, fontWeight: '700' },
+  bankValue: { color: '#fff', fontSize: 13, fontWeight: '900', marginTop: 2 },
 
-  footerHint: { marginTop: 10, color: '#B8B0A5', fontSize: 11, fontWeight: '600', textAlign: 'center', lineHeight: 16 },
+  sectionCard: {
+    backgroundColor: 'rgba(10,10,26,0.88)',
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+
+  sectionTitle: { color: '#fff', fontWeight: '900', marginBottom: 10 },
+
+  kvRow: { flexDirection: 'row', justifyContent: 'space-between', marginVertical: 4 },
+  kLabel: { color: MUTED2, fontSize: 12, fontWeight: '700' },
+  kValue: { color: '#fff', fontSize: 12, fontWeight: '900' },
+
+  actionBtnBase: {
+    borderRadius: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+  },
+  actionBtnIdle: {
+    borderColor: 'rgba(255,182,0,0.45)',
+    backgroundColor: 'rgba(255,182,0,0.10)',
+  },
+  actionBtnActive: {
+    borderColor: 'rgba(255,182,0,0.9)',
+    backgroundColor: YELLOW,
+  },
+  actionBtnTextIdle: { color: '#fff', fontWeight: '900' },
+  actionBtnTextActive: { color: NAVY, fontWeight: '900' },
+
+  fileBox: {
+    marginTop: 12,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  fileText: { color: '#fff', fontWeight: '700' },
+
+  submitBtn: {
+    marginTop: 14,
+    backgroundColor: YELLOW,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  submitText: { color: NAVY, fontWeight: '900' },
 });
