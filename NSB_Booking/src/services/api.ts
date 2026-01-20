@@ -1,17 +1,4 @@
-// src/services/api.ts
-import { Platform } from "react-native";
-
-const DEV_WEB = "http://localhost:3001";
-const DEV_ANDROID = "http://10.0.2.2:3001";
-// ✅ IMPORTANT: change this to your PC IP when using real phone on WiFi
-const DEV_DEVICE = "http://192.168.1.20:3001";
-
-export const API_BASE =
-  Platform.OS === "web"
-    ? DEV_WEB
-    : Platform.OS === "android"
-    ? DEV_ANDROID
-    : DEV_DEVICE;
+import { API_URL } from "./config";
 
 function withTimeout(ms: number) {
   const controller = new AbortController();
@@ -20,24 +7,31 @@ function withTimeout(ms: number) {
 }
 
 async function request(path: string, options: RequestInit = {}) {
-  const { controller, id } = withTimeout(20000); // ✅ 20s timeout
+  const { controller, id } = withTimeout(20000);
 
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await fetch(`${API_URL}${path}`, {
       signal: controller.signal,
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
       ...options,
     });
 
     const text = await res.text();
     let data: any;
+
     try {
       data = text ? JSON.parse(text) : null;
     } catch {
       data = text;
     }
 
-    if (!res.ok) throw new Error(data?.message || "Request failed");
+    if (!res.ok) {
+      throw new Error(data?.message || "Request failed");
+    }
+
     return data;
   } catch (e: any) {
     if (e?.name === "AbortError") {
