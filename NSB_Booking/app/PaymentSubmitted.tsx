@@ -1,5 +1,5 @@
 // NSB_Booking/app/PaymentSubmitted.tsx
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -14,42 +14,48 @@ const BTN_TEXT = '#00113D';
 
 export default function PaymentSubmitted() {
   const params = useLocalSearchParams();
-  const userIdParam = String(params.userId ?? '');
-  const bookingIdParam = String(params.bookingId ?? ''); // ✅ IMPORTANT
-
   const { draft, clearDraft } = useBookingDraft();
 
-  const userId = userIdParam || String(draft?.userId || '');
-  const bookingId = bookingIdParam || String(draft?.booking_ids?.[0] || ''); // fallback
+  const { userId, bookingId } = useMemo(() => {
+    const userIdParam = String(params.userId ?? '').trim();
+    const bookingIdParam = String(params.bookingId ?? '').trim();
+
+    const u = userIdParam || String(draft?.userId ?? '').trim();
+    const b = bookingIdParam || String(draft?.booking_ids?.[0] ?? '').trim();
+
+    return { userId: u, bookingId: b };
+  }, [params.userId, params.bookingId, draft?.userId, draft?.booking_ids]);
 
   return (
     <View style={styles.container}>
+      {/* ✅ Back button → My Bookings */}
+      <TouchableOpacity
+        style={styles.headerBack}
+        onPress={() => {
+          clearDraft();
+          router.replace({ pathname: '/UserBookings', params: { userId } });
+        }}
+        activeOpacity={0.9}
+      >
+        <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
+      </TouchableOpacity>
+
       <View style={styles.card}>
         <Ionicons name="checkmark-circle-outline" size={50} color={YELLOW} />
+
         <Text style={styles.title}>Payment Proof Submitted ✅</Text>
+
         <Text style={styles.sub}>
-          Your payment proof was uploaded successfully. Admin will review and approve/reject your booking.
+          Your payment proof was uploaded successfully. Admin will review and approve or reject your booking.
         </Text>
 
-        {/* ✅ Back to Dashboard */}
+        {/* ✅ Download QR Code (ONLY BUTTON) */}
         <TouchableOpacity
           style={styles.btn}
           activeOpacity={0.9}
           onPress={() => {
-            clearDraft();
-            router.replace({ pathname: '/UserDashboard', params: { userId } });
-          }}
-        >
-          <Text style={styles.btnText}>Back to Dashboard</Text>
-        </TouchableOpacity>
-
-        {/* ✅ View My Bookings (GO TO QR SCREEN) */}
-        <TouchableOpacity
-          style={styles.btnOutline}
-          activeOpacity={0.9}
-          onPress={() => {
             if (!bookingId) {
-              Alert.alert('Missing Booking', 'Booking ID not found. Please open My Bookings from dashboard.');
+              Alert.alert('Missing Booking', 'Booking ID not found. Please open My Bookings.');
               clearDraft();
               router.replace({ pathname: '/UserBookings', params: { userId } });
               return;
@@ -57,7 +63,6 @@ export default function PaymentSubmitted() {
 
             clearDraft();
 
-            // ✅ Go to BookingQR to download QR and scan
             router.replace({
               pathname: '/BookingQR',
               params: {
@@ -68,7 +73,7 @@ export default function PaymentSubmitted() {
             });
           }}
         >
-          <Text style={styles.btnOutlineText}>Download QR Code</Text>
+          <Text style={styles.btnText}>Download QR Code</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -83,6 +88,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: '6%',
   },
+
+  headerBack: {
+    position: 'absolute',
+    top: 30,
+    left: 16,
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    zIndex: 20,
+  },
+
   card: {
     width: '100%',
     backgroundColor: BLACK_BOX,
@@ -91,27 +109,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: CARD_EDGE,
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
-  title: { color: '#FFFFFF', fontSize: 16, fontWeight: '900', textAlign: 'center' },
-  sub: { color: '#B8B0A5', fontSize: 12, fontWeight: '600', textAlign: 'center', lineHeight: 16 },
+
+  title: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+
+  sub: {
+    color: '#B8B0A5',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+
   btn: {
-    marginTop: 10,
+    marginTop: 12,
     width: '100%',
     backgroundColor: YELLOW,
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
   },
-  btnText: { color: BTN_TEXT, fontWeight: '900' },
-  btnOutline: {
-    width: '100%',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: CARD_EDGE,
-    paddingVertical: 12,
-    alignItems: 'center',
-    backgroundColor: 'transparent',
+
+  btnText: {
+    color: BTN_TEXT,
+    fontWeight: '900',
   },
-  btnOutlineText: { color: CREAM_INPUT, fontWeight: '900' },
 });
