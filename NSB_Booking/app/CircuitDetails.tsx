@@ -14,11 +14,14 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from './config';
+import { LinearGradient } from 'expo-linear-gradient';
+import { API_URL } from '../src/services/config';
 
 const NAVY = '#020038';
 const YELLOW = '#FFB600';
-const BLACK_BOX = '#050515';
+const MUTED = 'rgba(255,255,255,0.70)';
+const MUTED2 = 'rgba(255,255,255,0.45)';
+const CARD_BG = 'rgba(10,10,26,0.88)';
 
 const toFullUrl = (p?: string) => {
   if (!p) return '';
@@ -120,7 +123,7 @@ export default function CircuitDetails() {
 
       const res = await fetch(`${API_URL}/circuits/${id}/deactivate`, {
         method: 'PATCH',
-        headers, // ✅ x-user-id so removed_by is updated
+        headers,
       });
 
       let json: any = {};
@@ -160,227 +163,338 @@ export default function CircuitDetails() {
 
   if (loading) {
     return (
-      <View style={styles.loaderWrap}>
-        <ActivityIndicator color={YELLOW} size="large" />
-        <Text style={styles.loaderText}>Loading...</Text>
-      </View>
+      <LinearGradient colors={['#020038', '#05004A', '#020038']} style={styles.background}>
+        <View style={styles.center}>
+          <ActivityIndicator color={YELLOW} size="large" />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </LinearGradient>
     );
   }
 
   if (!circuit) {
     return (
-      <View style={styles.loaderWrap}>
-        <Text style={styles.loaderText}>No circuit found.</Text>
-      </View>
+      <LinearGradient colors={['#020038', '#05004A', '#020038']} style={styles.background}>
+        <View style={styles.center}>
+          <Text style={styles.loadingText}>No circuit found.</Text>
+        </View>
+      </LinearGradient>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.screen} showsVerticalScrollIndicator={false}>
-      {/* Back icon */}
-      <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+    <LinearGradient colors={['#020038', '#05004A', '#020038']} style={styles.background}>
+      {/* Back button */}
+      <TouchableOpacity style={styles.headerBack} onPress={() => router.back()} activeOpacity={0.9}>
         <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
       </TouchableOpacity>
 
-      {/* Circuit Card */}
-      <View style={styles.card}>
-        <Text style={styles.title}>{circuit.circuit_Name}</Text>
-
-        <Text style={styles.infoLine}>
-          <Text style={styles.infoLabel}>City: </Text>
-          <Text style={styles.infoValue}>{circuit.city}</Text>
-        </Text>
-
-        <Text style={styles.infoLine}>
-          <Text style={styles.infoLabel}>Street: </Text>
-          <Text style={styles.infoValue}>{circuit.street}</Text>
-        </Text>
-
-        <Text style={[styles.sectionTitle, { marginTop: 14 }]}>Main Image</Text>
-
-        {circuit.imagePath ? (
-          <Image source={{ uri: toFullUrl(circuit.imagePath) }} style={styles.mainImage} resizeMode="cover" />
-        ) : (
-          <Text style={styles.smallText}>No main image</Text>
-        )}
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.title}>Circuit Details</Text>
+        <Text style={styles.subtitle}>View rooms & images</Text>
       </View>
 
-      {/* Rooms */}
-      <Text style={[styles.sectionTitle, { marginTop: 18 }]}>Rooms</Text>
+      {/* Scroll */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Circuit Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>{circuit.circuit_Name}</Text>
 
-      {rooms.length === 0 ? (
-        <Text style={styles.smallText}>No rooms available.</Text>
-      ) : (
-        rooms.map((r) => (
-          <View key={r.room_Id} style={styles.roomCard}>
-            <Text style={styles.roomTitle}>{r.room_Name}</Text>
-            <Text style={styles.roomLine}>
-              Rooms: {r.room_Count} | Max per room: {r.max_Persons}
-            </Text>
-            <Text style={styles.roomLine}>Price per person: Rs. {r.price_per_person}</Text>
-            {!!r.description && <Text style={styles.roomDesc}>{r.description}</Text>}
+          <View style={styles.infoRow}>
+            <View style={styles.infoIcon}>
+              <Ionicons name="location-outline" size={18} color={YELLOW} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoLabel}>City</Text>
+              <Text style={styles.infoValue}>{circuit.city}</Text>
+            </View>
           </View>
-        ))
-      )}
 
-      {/* ✅ More Images in BLACK BOX CARD */}
-      <View style={[styles.card, { marginTop: 18 }]}>
-        <Text style={styles.sectionTitle}>More Images</Text>
+          <View style={[styles.infoRow, { marginTop: 10 }]}>
+            <View style={styles.infoIcon}>
+              <Ionicons name="navigate-outline" size={18} color={YELLOW} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoLabel}>Street</Text>
+              <Text style={styles.infoValue}>{circuit.street}</Text>
+            </View>
+          </View>
 
-        {images.length === 0 ? (
-          <Text style={styles.smallText}>No extra images.</Text>
+          <Text style={[styles.sectionTitle, { marginTop: 14 }]}>Main Image</Text>
+
+          {circuit.imagePath ? (
+            <Image source={{ uri: toFullUrl(circuit.imagePath) }} style={styles.mainImage} resizeMode="cover" />
+          ) : (
+            <Text style={styles.smallText}>No main image</Text>
+          )}
+        </View>
+
+        {/* Rooms */}
+        <Text style={[styles.sectionTitle, { marginTop: 18 }]}>Rooms</Text>
+
+        {rooms.length === 0 ? (
+          <Text style={styles.smallText}>No rooms available.</Text>
         ) : (
-          images.slice(0, 8).map((img) => (
-            <Image
-              key={img.image_Id}
-              source={{ uri: toFullUrl(img.imagePath) }}
-              style={styles.extraImage}
-              resizeMode="cover"
-            />
+          rooms.map((r) => (
+            <View key={r.room_Id} style={styles.roomCard}>
+              <View style={styles.roomTop}>
+                <Text style={styles.roomTitle}>{r.room_Name}</Text>
+                <View style={styles.pricePill}>
+                  <Ionicons name="pricetag-outline" size={13} color={YELLOW} />
+                  <Text style={styles.pricePillText}>Rs {r.price_per_person}</Text>
+                </View>
+              </View>
+
+              <Text style={styles.roomLine}>
+                Rooms: {r.room_Count}  •  Max per room: {r.max_Persons}
+              </Text>
+
+              {!!r.description && <Text style={styles.roomDesc}>{r.description}</Text>}
+            </View>
           ))
         )}
-      </View>
 
-      {/* ✅ Buttons inside ScrollView (after images) */}
-      <View style={styles.buttonRow}>
-        <TouchableOpacity
-          style={[styles.actionButton, { backgroundColor: YELLOW }]}
-          onPress={() =>
-            router.push({
-              pathname: '/EditCircuit',
-              params: { circuitId: String(circuit.circuit_Id) },
-            })
-          }
-        >
-          <Text style={[styles.actionText, { color: NAVY }]}>Edit</Text>
-        </TouchableOpacity>
+        {/* More Images */}
+        <View style={[styles.card, { marginTop: 18 }]}>
+          <Text style={styles.sectionTitle}>More Images</Text>
 
-        <TouchableOpacity
-          style={[styles.actionButton, { backgroundColor: '#D9534F' }]}
-          onPress={deleting ? undefined : handleDelete}
-        >
-          <Text style={styles.actionText}>Delete</Text>
-        </TouchableOpacity>
-      </View>
-
-      {deleting && (
-        <View style={styles.deleteStatus}>
-          <ActivityIndicator size="small" color={YELLOW} />
-          <Text style={styles.deleteStatusText}>Deactivating...</Text>
+          {images.length === 0 ? (
+            <Text style={styles.smallText}>No extra images.</Text>
+          ) : (
+            images.slice(0, 8).map((img) => (
+              <Image
+                key={img.image_Id}
+                source={{ uri: toFullUrl(img.imagePath) }}
+                style={styles.extraImage}
+                resizeMode="cover"
+              />
+            ))
+          )}
         </View>
-      )}
-    </ScrollView>
+
+        {/* Buttons */}
+        <View style={styles.buttonRow}>
+          <TouchableOpacity
+            style={[styles.btnPrimary, { flex: 1 }]}
+            onPress={() =>
+              router.push({
+                pathname: '/EditCircuit',
+                params: { circuitId: String(circuit.circuit_Id) },
+              })
+            }
+            activeOpacity={0.9}
+          >
+            <Text style={styles.btnPrimaryText}>Edit</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.btnDanger, { flex: 1 }]}
+            onPress={deleting ? undefined : handleDelete}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.btnDangerText}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+
+        {deleting && (
+          <View style={styles.deleteStatus}>
+            <ActivityIndicator size="small" color={YELLOW} />
+            <Text style={styles.deleteStatusText}>Deactivating...</Text>
+          </View>
+        )}
+
+        <View style={{ height: 26 }} />
+      </ScrollView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flexGrow: 1,
-    backgroundColor: NAVY,
-    paddingTop: 50,
-    paddingHorizontal: '6%',
-    paddingBottom: 40,
+  background: { flex: 1 },
+
+  headerBack: {
+    position: 'absolute',
+    top: 30,
+    left: 16,
+    zIndex: 20,
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
   },
 
-  backButton: {
-    alignSelf: 'flex-start',
-    padding: 6,
-    marginBottom: 10,
+  header: {
+    position: 'absolute',
+    top: 78,
+    left: 0,
+    right: 0,
+    zIndex: 15,
+    alignItems: 'center',
+    paddingHorizontal: '7%',
   },
+
+  title: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', textAlign: 'center' },
+  subtitle: { color: MUTED, fontSize: 12, fontWeight: '700', marginTop: 6, textAlign: 'center' },
+
+  scroll: { flex: 1, backgroundColor: 'transparent' },
+  content: {
+    flexGrow: 1,
+    paddingHorizontal: '7%',
+    paddingTop: 130,
+    paddingBottom: 30,
+  },
+
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { color: '#FFFFFF', marginTop: 10, fontWeight: '700' },
 
   card: {
-    width: '100%',
-    backgroundColor: BLACK_BOX,
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    backgroundColor: CARD_BG,
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    elevation: 8,
   },
 
-  title: {
+  cardTitle: {
     color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '900',
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
   },
-
-  infoLine: { marginBottom: 4 },
-  infoLabel: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
-  infoValue: { color: '#D6D0C6', fontSize: 13 },
 
   sectionTitle: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '900',
     marginBottom: 10,
   },
 
-  smallText: { color: '#B8B0A5', fontSize: 12 },
+  smallText: { color: MUTED2, fontSize: 12, fontWeight: '700' },
 
-  mainImage: { width: '100%', height: 180, borderRadius: 12 },
+  infoRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+  },
+
+  infoIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,182,0,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,182,0,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  infoLabel: { color: MUTED, fontSize: 12, fontWeight: '800' },
+  infoValue: { color: '#FFFFFF', fontSize: 13, fontWeight: '900', marginTop: 2 },
+
+  mainImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
 
   roomCard: {
-    backgroundColor: BLACK_BOX,
-    borderRadius: 14,
-    padding: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 18,
+    padding: 14,
     marginTop: 10,
   },
 
-  roomTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', marginBottom: 6 },
-  roomLine: { color: '#D6D0C6', fontSize: 12, marginBottom: 4 },
-  roomDesc: { color: '#B8B0A5', fontSize: 12, marginTop: 4 },
+  roomTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+
+  roomTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '900', flex: 1 },
+
+  roomLine: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 10,
+  },
+
+  roomDesc: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 10,
+    lineHeight: 16,
+  },
+
+  pricePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,182,0,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,182,0,0.25)',
+  },
+
+  pricePillText: { color: '#FFFFFF', fontWeight: '900', fontSize: 12 },
 
   extraImage: {
     width: '100%',
     height: 140,
-    borderRadius: 12,
+    borderRadius: 16,
     marginTop: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
   },
 
   buttonRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     gap: 12,
     marginTop: 18,
   },
 
-  actionButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
+  btnPrimary: {
+    backgroundColor: YELLOW,
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: 'center',
+    justifyContent: 'center',
   },
+  btnPrimaryText: { color: NAVY, fontWeight: '900', fontSize: 14 },
 
-  actionText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 14,
+  btnDanger: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,120,120,0.30)',
+    backgroundColor: 'rgba(255,90,90,0.18)',
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  btnDangerText: { color: '#FFB3B3', fontWeight: '900', fontSize: 14 },
 
   deleteStatus: {
-    marginTop: 10,
+    marginTop: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
   },
-
-  deleteStatusText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: '#FFD2CF',
-    fontWeight: '500',
-  },
-
-  loaderWrap: {
-    flex: 1,
-    backgroundColor: NAVY,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-
-  loaderText: {
-    color: '#FFFFFF',
-    marginTop: 10,
-  },
+  deleteStatusText: { fontSize: 13, color: '#FFD2CF', fontWeight: '800' },
 });

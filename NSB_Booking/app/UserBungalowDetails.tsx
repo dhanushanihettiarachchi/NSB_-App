@@ -19,7 +19,7 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { API_URL } from './config';
+import { API_URL } from '../src/services/config';
 
 type CircuitDetailsResponse = {
   message?: string;

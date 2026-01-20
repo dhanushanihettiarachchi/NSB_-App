@@ -16,7 +16,8 @@ import { useLocalSearchParams, router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from './config';
+import { LinearGradient } from 'expo-linear-gradient';
+import { API_URL } from '../src/services/config';
 
 type CircuitDetailsResponse = {
   message?: string;
@@ -36,12 +37,12 @@ type RoomForm = {
 
 const NAVY = '#020038';
 const YELLOW = '#FFB600';
-const CREAM = '#FFEBD3';
 const BLACK_BOX = '#050515';
+const CARD = '#0A0A1A';
+const MUTED = 'rgba(255,255,255,0.70)';
+const MUTED2 = 'rgba(255,255,255,0.45)';
 
 type SavingTarget = 'circuit' | 'rooms' | 'images' | null;
-
-
 
 const toFullUrl = (p?: string) => {
   if (!p) return '';
@@ -447,275 +448,441 @@ const EditCircuitScreen = () => {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={YELLOW} />
-        <Text style={styles.loadingText}>Loading circuit...</Text>
-      </View>
+      <LinearGradient colors={['#020038', '#05004A', '#020038']} style={styles.background}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={YELLOW} />
+          <Text style={styles.loadingText}>Loading circuit...</Text>
+        </View>
+      </LinearGradient>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled">
-      <View style={styles.topRow}>
-        <TouchableOpacity style={styles.backBtn} onPress={goBackToDetailsFresh}>
-          <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
-        </TouchableOpacity>
+    <LinearGradient colors={['#020038', '#05004A', '#020038']} style={styles.background}>
+      {/* ✅ Back button (same style as other screens) */}
+      <TouchableOpacity style={styles.headerBack} onPress={goBackToDetailsFresh} activeOpacity={0.9}>
+        <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
+      </TouchableOpacity>
+
+      {/* ✅ Title header */}
+      <View style={styles.header}>
+        <Text style={styles.title}>Edit Circuit</Text>
+        <Text style={styles.subtitle}>Update circuit info, rooms, and images</Text>
       </View>
 
-      <Text style={styles.title}>Edit Circuit</Text>
+      {/* ✅ IMPORTANT: style+background fixes the white pull-down area */}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Circuit Info */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Circuit Info</Text>
 
-      {/* Circuit Info */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Circuit Info</Text>
+          <Text style={styles.label}>Circuit Name</Text>
+          <TextInput style={styles.input} value={circuitName} onChangeText={setCircuitName} />
 
-        <Text style={styles.label}>Circuit Name</Text>
-        <TextInput style={styles.input} value={circuitName} onChangeText={setCircuitName} />
+          <Text style={styles.label}>City</Text>
+          <TextInput style={styles.input} value={city} onChangeText={setCity} />
 
-        <Text style={styles.label}>City</Text>
-        <TextInput style={styles.input} value={city} onChangeText={setCity} />
+          <Text style={styles.label}>Street</Text>
+          <TextInput style={styles.input} value={street} onChangeText={setStreet} />
 
-        <Text style={styles.label}>Street</Text>
-        <TextInput style={styles.input} value={street} onChangeText={setStreet} />
-
-        <Text style={styles.label}>Main Image</Text>
-        {imagePath ? (
-          <View style={{ marginBottom: 10 }}>
-            <Image
-              source={{ uri: toFullUrl(imagePath) }}
-              style={{ width: '100%', height: 170, borderRadius: 12 }}
-              resizeMode="cover"
-            />
-            <Text style={styles.hintText}>Path: {imagePath}</Text>
-          </View>
-        ) : (
-          <Text style={styles.hintText}>No main image selected.</Text>
-        )}
-
-        <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
-          <TouchableOpacity
-            style={[styles.secondaryButton, { flex: 1 }]}
-            onPress={pickAndUploadMainImage}
-            disabled={uploadingMain || savingTarget !== null}
-          >
-            {uploadingMain ? <ActivityIndicator color={YELLOW} /> : <Text style={styles.secondaryButtonText}>Pick & Upload Main</Text>}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.dangerButton, { flex: 1 }]}
-            onPress={clearMainImageLocal}
-            disabled={uploadingMain || savingTarget !== null || !imagePath}
-          >
-            <Text style={styles.dangerText}>Clear Main</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity style={styles.saveButton} onPress={handleSaveCircuitInfo} disabled={savingTarget !== null}>
-          {savingTarget === 'circuit' ? <ActivityIndicator color={NAVY} /> : <Text style={styles.saveButtonText}>Save Circuit Info</Text>}
-        </TouchableOpacity>
-      </View>
-
-      {/* Rooms */}
-      <View style={[styles.card, { marginTop: 20 }]}>
-        <Text style={styles.sectionTitle}>Rooms</Text>
-        <Text style={styles.hintText}>Note: Removing rooms here will deactivate them in the database.</Text>
-
-        {rooms.map((room, index) => (
-          <View key={index} style={styles.roomCard}>
-            <View style={styles.roomHeaderRow}>
-              <Text style={styles.roomHeader}>
-                Room {index + 1} {room.room_Id ? `(ID: ${room.room_Id})` : '(new)'}
-              </Text>
-              {rooms.length > 1 && (
-                <TouchableOpacity
-                  onPress={() => removeRoom(index)}
-                  disabled={savingTarget !== null}
-                  style={styles.removeIconBtn}
-                >
-                  <Ionicons name="trash-outline" size={20} color="#FFB3B3" />
-                </TouchableOpacity>
-              )}
+          <Text style={styles.label}>Main Image</Text>
+          {imagePath ? (
+            <View style={{ marginBottom: 10 }}>
+              <Image
+                source={{ uri: toFullUrl(imagePath) }}
+                style={styles.mainImage}
+                resizeMode="cover"
+              />
+              <Text style={styles.hintText}>Path: {imagePath}</Text>
             </View>
+          ) : (
+            <Text style={styles.hintText}>No main image selected.</Text>
+          )}
 
-            <TextInput
-              style={styles.input}
-              placeholder="Room Name"
-              placeholderTextColor="#8F8478"
-              value={room.room_Name}
-              onChangeText={(t) => updateRoomField(index, 'room_Name', t)}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Room Count"
-              placeholderTextColor="#8F8478"
-              keyboardType="numeric"
-              value={room.room_Count}
-              onChangeText={(t) => updateRoomField(index, 'room_Count', t)}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Max Persons"
-              placeholderTextColor="#8F8478"
-              keyboardType="numeric"
-              value={room.max_Persons}
-              onChangeText={(t) => updateRoomField(index, 'max_Persons', t)}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Price per person"
-              placeholderTextColor="#8F8478"
-              keyboardType="numeric"
-              value={room.price_per_person}
-              onChangeText={(t) => updateRoomField(index, 'price_per_person', t)}
-            />
-            <TextInput
-              style={[styles.input, { height: 70 }]}
-              placeholder="Description"
-              placeholderTextColor="#8F8478"
-              multiline
-              value={room.description}
-              onChangeText={(t) => updateRoomField(index, 'description', t)}
-            />
+          <View style={styles.twoColRow}>
+            <TouchableOpacity
+              style={styles.btnOutline}
+              onPress={pickAndUploadMainImage}
+              disabled={uploadingMain || savingTarget !== null}
+              activeOpacity={0.9}
+            >
+              {uploadingMain ? (
+                <ActivityIndicator color={YELLOW} />
+              ) : (
+                <Text style={styles.btnOutlineText}>Pick & Upload Main</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.btnDanger}
+              onPress={clearMainImageLocal}
+              disabled={uploadingMain || savingTarget !== null || !imagePath}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.btnDangerText}>Clear Main</Text>
+            </TouchableOpacity>
           </View>
-        ))}
-
-        <TouchableOpacity style={styles.addRoomButton} onPress={addRoom} disabled={savingTarget !== null}>
-          <Text style={styles.addRoomText}>+ Add Room Type</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.saveButton, { marginTop: 12 }]} onPress={handleSaveRooms} disabled={savingTarget !== null}>
-          {savingTarget === 'rooms' ? <ActivityIndicator color={NAVY} /> : <Text style={styles.saveButtonText}>Save Rooms</Text>}
-        </TouchableOpacity>
-      </View>
-
-      {/* Extra Images */}
-      <View style={[styles.card, { marginTop: 20 }]}>
-        <Text style={styles.sectionTitle}>Extra Images</Text>
-
-        {previewExtra.length === 0 ? (
-          <Text style={styles.hintText}>No extra images selected.</Text>
-        ) : (
-          <View style={{ marginTop: 8 }}>
-            {previewExtra.map((p, idx) => (
-              <View key={`${p}_${idx}`} style={{ marginBottom: 12 }}>
-                <Image source={{ uri: toFullUrl(p) }} style={{ width: '100%', height: 130, borderRadius: 12 }} resizeMode="cover" />
-                <Text style={styles.hintText} numberOfLines={1}>{p}</Text>
-
-                <TouchableOpacity style={{ marginTop: 6, alignSelf: 'flex-end' }} onPress={() => removeOneExtra(idx)} disabled={savingTarget !== null}>
-                  <Text style={styles.removeRoomText}>Remove this image</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
-        )}
-
-        <TouchableOpacity style={styles.secondaryButton} onPress={pickAndUploadExtraImages} disabled={uploadingExtra || savingTarget !== null}>
-          {uploadingExtra ? <ActivityIndicator color={YELLOW} /> : <Text style={styles.secondaryButtonText}>Pick & Upload Extra Images</Text>}
-        </TouchableOpacity>
-
-        <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-          <TouchableOpacity
-            style={[styles.dangerButton, { flex: 1 }]}
-            onPress={clearAllExtra}
-            disabled={savingTarget !== null || previewExtra.length === 0}
-          >
-            <Text style={styles.dangerText}>Clear All</Text>
-          </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.saveButton, { flex: 1, marginTop: 0 }]}
-            onPress={handleSaveImages}
+            style={[styles.btnPrimary, savingTarget !== null && styles.btnDisabled]}
+            onPress={handleSaveCircuitInfo}
             disabled={savingTarget !== null}
+            activeOpacity={0.9}
           >
-            {savingTarget === 'images' ? <ActivityIndicator color={NAVY} /> : <Text style={styles.saveButtonText}>Save Extra Images</Text>}
+            {savingTarget === 'circuit' ? (
+              <ActivityIndicator color={NAVY} />
+            ) : (
+              <Text style={styles.btnPrimaryText}>Save Circuit Info</Text>
+            )}
           </TouchableOpacity>
         </View>
 
-        <Text style={[styles.label, { marginTop: 14 }]}>Extra Image Paths (auto-filled)</Text>
-        <TextInput
-          style={[styles.input, { height: 80 }]}
-          value={imagesText}
-          onChangeText={setImagesText}
-          placeholder="Extra image paths will appear here"
-          placeholderTextColor="#8F8478"
-          multiline
-          editable={false}
-        />
-      </View>
-    </ScrollView>
+        {/* Rooms */}
+        <View style={[styles.card, { marginTop: 18 }]}>
+          <Text style={styles.sectionTitle}>Rooms</Text>
+          <Text style={styles.hintText}>Note: Removing rooms here will deactivate them in the database.</Text>
+
+          {rooms.map((room, index) => (
+            <View key={index} style={styles.roomCard}>
+              <View style={styles.roomHeaderRow}>
+                <Text style={styles.roomHeader}>
+                  Room {index + 1} {room.room_Id ? `(ID: ${room.room_Id})` : '(new)'}
+                </Text>
+                {rooms.length > 1 && (
+                  <TouchableOpacity
+                    onPress={() => removeRoom(index)}
+                    disabled={savingTarget !== null}
+                    style={styles.removeIconBtn}
+                    activeOpacity={0.9}
+                  >
+                    <Ionicons name="trash-outline" size={20} color="#FFB3B3" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Room Name"
+                placeholderTextColor={MUTED2}
+                value={room.room_Name}
+                onChangeText={(t) => updateRoomField(index, 'room_Name', t)}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Room Count"
+                placeholderTextColor={MUTED2}
+                keyboardType="numeric"
+                value={room.room_Count}
+                onChangeText={(t) => updateRoomField(index, 'room_Count', t)}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Max Persons"
+                placeholderTextColor={MUTED2}
+                keyboardType="numeric"
+                value={room.max_Persons}
+                onChangeText={(t) => updateRoomField(index, 'max_Persons', t)}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Price per person"
+                placeholderTextColor={MUTED2}
+                keyboardType="numeric"
+                value={room.price_per_person}
+                onChangeText={(t) => updateRoomField(index, 'price_per_person', t)}
+              />
+              <TextInput
+                style={[styles.input, { height: 76, paddingTop: 12 }]}
+                placeholder="Description"
+                placeholderTextColor={MUTED2}
+                multiline
+                value={room.description}
+                onChangeText={(t) => updateRoomField(index, 'description', t)}
+              />
+            </View>
+          ))}
+
+          <TouchableOpacity
+            style={styles.linkBtn}
+            onPress={addRoom}
+            disabled={savingTarget !== null}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.linkBtnText}>+ Add Room Type</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.btnPrimary, savingTarget !== null && styles.btnDisabled]}
+            onPress={handleSaveRooms}
+            disabled={savingTarget !== null}
+            activeOpacity={0.9}
+          >
+            {savingTarget === 'rooms' ? (
+              <ActivityIndicator color={NAVY} />
+            ) : (
+              <Text style={styles.btnPrimaryText}>Save Rooms</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Extra Images */}
+        <View style={[styles.card, { marginTop: 18 }]}>
+          <Text style={styles.sectionTitle}>Extra Images</Text>
+
+          {previewExtra.length === 0 ? (
+            <Text style={styles.hintText}>No extra images selected.</Text>
+          ) : (
+            <View style={{ marginTop: 8 }}>
+              {previewExtra.map((p, idx) => (
+                <View key={`${p}_${idx}`} style={{ marginBottom: 12 }}>
+                  <Image
+                    source={{ uri: toFullUrl(p) }}
+                    style={styles.extraImage}
+                    resizeMode="cover"
+                  />
+                  <Text style={styles.hintText} numberOfLines={1}>
+                    {p}
+                  </Text>
+
+                  <TouchableOpacity
+                    style={{ marginTop: 6, alignSelf: 'flex-end' }}
+                    onPress={() => removeOneExtra(idx)}
+                    disabled={savingTarget !== null}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={styles.removeRoomText}>Remove this image</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={styles.btnOutlineFull}
+            onPress={pickAndUploadExtraImages}
+            disabled={uploadingExtra || savingTarget !== null}
+            activeOpacity={0.9}
+          >
+            {uploadingExtra ? (
+              <ActivityIndicator color={YELLOW} />
+            ) : (
+              <Text style={styles.btnOutlineText}>Pick & Upload Extra Images</Text>
+            )}
+          </TouchableOpacity>
+
+          <View style={styles.twoColRow}>
+            <TouchableOpacity
+              style={styles.btnDanger}
+              onPress={clearAllExtra}
+              disabled={savingTarget !== null || previewExtra.length === 0}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.btnDangerText}>Clear All</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.btnPrimary, savingTarget !== null && styles.btnDisabled, { marginTop: 0 }]}
+              onPress={handleSaveImages}
+              disabled={savingTarget !== null}
+              activeOpacity={0.9}
+            >
+              {savingTarget === 'images' ? (
+                <ActivityIndicator color={NAVY} />
+              ) : (
+                <Text style={styles.btnPrimaryText}>Save Extra Images</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.label, { marginTop: 14 }]}>Extra Image Paths (auto-filled)</Text>
+          <TextInput
+            style={[styles.input, { height: 90, paddingTop: 12 }]}
+            value={imagesText}
+            onChangeText={setImagesText}
+            placeholder="Extra image paths will appear here"
+            placeholderTextColor={MUTED2}
+            multiline
+            editable={false}
+          />
+        </View>
+
+        <View style={{ height: 26 }} />
+      </ScrollView>
+    </LinearGradient>
   );
 };
 
 export default EditCircuitScreen;
 
 const styles = StyleSheet.create({
-  screen: {
+  background: { flex: 1 },
+
+  // Fix white pull-down area: give scroll a dark/transparent base under gradient
+  scroll: { flex: 1, backgroundColor: 'transparent' },
+  scrollContent: {
     flexGrow: 1,
-    backgroundColor: NAVY,
-    paddingHorizontal: '6%',
-    paddingTop: 40,
+    paddingHorizontal: '7%',
+    paddingTop: 140, // space for header+back
     paddingBottom: 30,
   },
-  topRow: { position: 'absolute', top: 40, left: 18, zIndex: 10 },
-  backBtn: { padding: 6 },
-  center: { flex: 1, backgroundColor: NAVY, justifyContent: 'center', alignItems: 'center' },
+
+  headerBack: {
+    position: 'absolute',
+    top: 30,
+    left: 16,
+    zIndex: 20,
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+
+  header: {
+    position: 'absolute',
+    top: 78,
+    left: 0,
+    right: 0,
+    zIndex: 15,
+    alignItems: 'center',
+    paddingHorizontal: '7%',
+  },
+
+  title: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', textAlign: 'center' },
+  subtitle: { color: MUTED, fontSize: 12, fontWeight: '700', marginTop: 6, textAlign: 'center' },
+
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: '#FFFFFF', marginTop: 8 },
-  title: { color: '#FFFFFF', fontSize: 22, fontWeight: '700', textAlign: 'center', marginBottom: 16 },
+
   card: {
-    width: '100%',
-    backgroundColor: BLACK_BOX,
-    borderRadius: 18,
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    elevation: 6,
+    backgroundColor: 'rgba(10,10,26,0.88)',
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    elevation: 8,
   },
-  sectionTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginBottom: 6 },
-  label: { color: '#FFFFFF', fontSize: 13, marginBottom: 4, marginTop: 10 },
-  input: {
-    backgroundColor: CREAM,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+
+  sectionTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
     marginBottom: 10,
-    fontSize: 14,
   },
-  hintText: { color: '#B8B0A5', fontSize: 12, marginTop: 6 },
-  roomCard: { backgroundColor: '#171422', borderRadius: 14, padding: 10, marginTop: 8 },
+
+  label: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    marginBottom: 6,
+    marginTop: 10,
+    fontWeight: '700',
+  },
+
+  // Keep your cream inputs? You said you want SignUp/AdminDashboard style,
+  // so inputs are darker, glassy, with border.
+  input: {
+    borderRadius: 14,
+    height: 48,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    color: '#FFFFFF',
+    fontSize: 14,
+    marginBottom: 10,
+  },
+
+  hintText: { color: 'rgba(255,255,255,0.65)', fontSize: 12, marginTop: 4, fontWeight: '700' },
+
+  mainImage: { width: '100%', height: 180, borderRadius: 14 },
+
+  twoColRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+
+  btnPrimary: {
+    flex: 1,
+    backgroundColor: YELLOW,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+  },
+  btnPrimaryText: { color: NAVY, fontWeight: '900', fontSize: 15 },
+
+  btnOutline: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,182,0,0.55)',
+    backgroundColor: 'rgba(255,182,0,0.10)',
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  btnOutlineFull: {
+    width: '100%',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,182,0,0.55)',
+    backgroundColor: 'rgba(255,182,0,0.10)',
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+
+  btnOutlineText: { color: YELLOW, fontWeight: '900', fontSize: 13 },
+
+  btnDanger: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,120,120,0.30)',
+    backgroundColor: 'rgba(255,90,90,0.18)',
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnDangerText: { color: '#FFB3B3', fontWeight: '900', fontSize: 13 },
+
+  btnDisabled: { opacity: 0.7 },
+
+  roomCard: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 18,
+    padding: 12,
+    marginTop: 10,
+  },
+
   roomHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 10,
   },
-  roomHeader: { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
-  removeIconBtn: { padding: 4 },
-  addRoomButton: { marginTop: 8, alignItems: 'center' },
-  addRoomText: { color: YELLOW, fontWeight: '600', fontSize: 14 },
-  removeRoomText: { color: '#FFB3B3', fontSize: 13, fontWeight: '600' },
-  saveButton: {
-    backgroundColor: YELLOW,
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  saveButtonText: { color: NAVY, fontWeight: '700', fontSize: 15 },
-  secondaryButton: {
-    backgroundColor: '#2B2735',
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  secondaryButtonText: { color: YELLOW, fontWeight: '600', fontSize: 14 },
-  dangerButton: {
-    backgroundColor: '#5A1A1A',
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  dangerText: { color: '#FFB3B3', fontWeight: '700', fontSize: 14 },
+  roomHeader: { color: '#FFFFFF', fontWeight: '900', fontSize: 14 },
+  removeIconBtn: { padding: 6 },
+
+  linkBtn: { marginTop: 12, alignItems: 'center' },
+  linkBtnText: { color: YELLOW, fontWeight: '900', fontSize: 14 },
+
+  removeRoomText: { color: '#FFB3B3', fontSize: 13, fontWeight: '900' },
+
+  extraImage: { width: '100%', height: 140, borderRadius: 14, marginTop: 6 },
 });

@@ -16,7 +16,7 @@ import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { API_URL } from './config';
+import { API_URL } from '../src/services/config';
 
 const NAVY = '#020038';
 const YELLOW = '#FFB600';

@@ -14,7 +14,7 @@ import {
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { API_URL } from './config';
+import { API_URL } from '../src/services/config';
 
 /* ================= CONSTANTS ================= */
 

@@ -11,12 +11,14 @@ import {
   Platform,
   ScrollView,
   Image,
+  Pressable,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
-import { API_URL } from './config';
+import { LinearGradient } from 'expo-linear-gradient';
+import { API_URL } from '../src/services/config';
 
 type RoomPayload = {
   room_Name: string;
@@ -28,8 +30,9 @@ type RoomPayload = {
 
 const NAVY = '#020038';
 const YELLOW = '#FFB600';
-const CREAM = '#FFEBD3';
-const BLACK_BOX = '#050515';
+const CARD = '#0A0A1A';
+const MUTED = 'rgba(255,255,255,0.70)';
+const MUTED2 = 'rgba(255,255,255,0.45)';
 
 const toFullUrl = (p?: string) => {
   if (!p) return '';
@@ -43,6 +46,17 @@ async function uriToFileWeb(uri: string, filename: string) {
   const blob = await res.blob();
   return new File([blob], filename, { type: blob.type || 'image/jpeg' });
 }
+
+type FocusField =
+  | 'circuitName'
+  | 'city'
+  | 'street'
+  | 'roomName'
+  | 'roomCount'
+  | 'maxPersons'
+  | 'pricePerPerson'
+  | 'description'
+  | null;
 
 export default function ManageCircuitsScreen() {
   const [circuitName, setCircuitName] = useState('');
@@ -64,10 +78,11 @@ export default function ManageCircuitsScreen() {
   const [rooms, setRooms] = useState<RoomPayload[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // ✅ You can keep this even though list is removed,
-  // because after save we can still refresh data (optional)
+  // ✅ keep existing logic (optional refresh)
   const [circuits, setCircuits] = useState<any[]>([]);
   const [listLoading, setListLoading] = useState(false);
+
+  const [focusField, setFocusField] = useState<FocusField>(null);
 
   const fetchCircuits = useCallback(async () => {
     try {
@@ -86,12 +101,10 @@ export default function ManageCircuitsScreen() {
     }
   }, []);
 
-  // initial load (optional now)
   useEffect(() => {
     fetchCircuits();
   }, [fetchCircuits]);
 
-  // refresh when coming back (optional now)
   useFocusEffect(
     useCallback(() => {
       fetchCircuits();
@@ -279,7 +292,6 @@ export default function ManageCircuitsScreen() {
       setDescription('');
       setRooms([]);
 
-      // optional refresh
       fetchCircuits();
     } catch (err) {
       console.log('Save error:', err);
@@ -295,161 +307,631 @@ export default function ManageCircuitsScreen() {
     .filter(Boolean);
 
   return (
-    <ScrollView contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled">
-      <View style={styles.topRow}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.push('/AdminDashboard')}>
+    <LinearGradient colors={['#020038', '#05004A', '#020038']} style={styles.background}>
+      <ScrollView
+        contentContainerStyle={styles.screen}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Top Back */}
+        <TouchableOpacity style={styles.headerBack} onPress={() => router.push('/AdminDashboard')} activeOpacity={0.9}>
           <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
         </TouchableOpacity>
-      </View>
 
-      <Text style={styles.title}>Manage Circuit Bungalows</Text>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.title}>Manage Circuit Bungalows</Text>
+          <Text style={styles.subtitle}>Add circuit details, rooms, and images</Text>
+        </View>
 
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Add New Circuit</Text>
+        {/* Card */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Add New Circuit</Text>
 
-        <Text style={styles.label}>Circuit Name</Text>
-        <TextInput style={styles.input} value={circuitName} onChangeText={setCircuitName} />
-
-        <Text style={styles.label}>City</Text>
-        <TextInput style={styles.input} value={city} onChangeText={setCity} />
-
-        <Text style={styles.label}>Street</Text>
-        <TextInput style={styles.input} value={street} onChangeText={setStreet} />
-
-        <Text style={styles.label}>Main Image</Text>
-
-        {imagePath ? (
-          <View style={{ marginBottom: 10 }}>
-            <Image
-              key={imagePath}
-              source={{ uri: toFullUrl(imagePath) }}
-              style={{ width: '100%', height: 160, borderRadius: 12 }}
-              resizeMode="cover"
-              onError={(e) => console.log('Main image load error:', e.nativeEvent)}
+          {/* Circuit Name */}
+          <Text style={styles.label}>Circuit Name</Text>
+          <View style={[styles.inputWrap, focusField === 'circuitName' && styles.inputFocus]}>
+            <Ionicons name="home-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              value={circuitName}
+              onChangeText={setCircuitName}
+              placeholder="Circuit name"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              onFocus={() => setFocusField('circuitName')}
+              onBlur={() => setFocusField(null)}
             />
-            <Text style={styles.cardLineSmall}>Saved: {imagePath}</Text>
           </View>
-        ) : (
-          <Text style={styles.cardLineSmall}>No main image uploaded yet.</Text>
-        )}
 
-        <TouchableOpacity style={styles.secondaryButton} onPress={pickAndUploadMainImage} disabled={uploadingMain}>
-          {uploadingMain ? (
-            <ActivityIndicator color={YELLOW} />
-          ) : (
-            <Text style={styles.secondaryButtonText}>Pick & Upload Main Image</Text>
-          )}
-        </TouchableOpacity>
-
-        <Text style={[styles.sectionTitle, { marginTop: 14 }]}>Add Room Types</Text>
-
-        <Text style={styles.label}>Room Name</Text>
-        <TextInput style={styles.input} value={roomName} onChangeText={setRoomName} />
-
-        <Text style={styles.label}>Room Count</Text>
-        <TextInput style={styles.input} value={roomCount} onChangeText={setRoomCount} keyboardType="numeric" />
-
-        <Text style={styles.label}>Max Persons Per One Room</Text>
-        <TextInput style={styles.input} value={maxPersons} onChangeText={setMaxPersons} keyboardType="numeric" />
-
-        <Text style={styles.label}>Price Per Person</Text>
-        <TextInput style={styles.input} value={pricePerPerson} onChangeText={setPricePerPerson} keyboardType="numeric" />
-
-        <Text style={styles.label}>Description</Text>
-        <TextInput style={[styles.input, { height: 80 }]} value={description} onChangeText={setDescription} multiline />
-
-        <TouchableOpacity style={styles.secondaryButton} onPress={handleAddRoomType}>
-          <Text style={styles.secondaryButtonText}>+ Add Room Type</Text>
-        </TouchableOpacity>
-
-        {rooms.length > 0 && (
-          <View style={{ marginTop: 10 }}>
-            <Text style={styles.subHeader}>Added Room Types</Text>
-            {rooms.map((r, index) => (
-              <View key={index} style={styles.roomChip}>
-                <Text style={styles.roomChipTitle}>{r.room_Name}</Text>
-                <Text style={styles.roomChipText}>
-                  Count: {r.room_Count} | Max: {r.max_Persons} | Rs. {r.price_per_person}
-                </Text>
-              </View>
-            ))}
+          {/* City */}
+          <Text style={[styles.label, { marginTop: 12 }]}>City</Text>
+          <View style={[styles.inputWrap, focusField === 'city' && styles.inputFocus]}>
+            <Ionicons name="location-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              value={city}
+              onChangeText={setCity}
+              placeholder="City"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              onFocus={() => setFocusField('city')}
+              onBlur={() => setFocusField(null)}
+            />
           </View>
-        )}
 
-        <Text style={[styles.sectionTitle, { marginTop: 16 }]}>Extra Images</Text>
+          {/* Street */}
+          <Text style={[styles.label, { marginTop: 12 }]}>Street</Text>
+          <View style={[styles.inputWrap, focusField === 'street' && styles.inputFocus]}>
+            <Ionicons name="navigate-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              value={street}
+              onChangeText={setStreet}
+              placeholder="Street"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              onFocus={() => setFocusField('street')}
+              onBlur={() => setFocusField(null)}
+            />
+          </View>
 
-        {extraPreview.length > 0 ? (
-          <Text style={styles.cardLineSmall}>Saved: {extraPreview.length} images</Text>
-        ) : (
-          <Text style={styles.cardLineSmall}>No extra images uploaded yet.</Text>
-        )}
+          {/* Main image */}
+          <View style={styles.sectionRow}>
+            <Text style={styles.sectionTitle2}>Main Image</Text>
+            <View style={styles.pill}>
+              <Ionicons name="image-outline" size={14} color={YELLOW} />
+              <Text style={styles.pillText}>{imagePath ? 'Uploaded' : 'Not uploaded'}</Text>
+            </View>
+          </View>
 
-        <TouchableOpacity style={styles.secondaryButton} onPress={pickAndUploadExtraImages} disabled={uploadingExtra}>
-          {uploadingExtra ? (
-            <ActivityIndicator color={YELLOW} />
-          ) : (
-            <Text style={styles.secondaryButtonText}>Pick & Upload Extra Images</Text>
-          )}
-        </TouchableOpacity>
-
-        {extraPreview.length > 0 && (
-          <View style={{ marginTop: 10 }}>
-            {extraPreview.slice(0, 6).map((p, idx) => (
+          {imagePath ? (
+            <View style={{ marginTop: 10 }}>
               <Image
-                key={p + idx}
-                source={{ uri: toFullUrl(p) }}
-                style={{ width: '100%', height: 120, borderRadius: 12, marginBottom: 8 }}
+                key={imagePath}
+                source={{ uri: toFullUrl(imagePath) }}
+                style={styles.previewMain}
                 resizeMode="cover"
+                onError={(e) => console.log('Main image load error:', e.nativeEvent)}
               />
-            ))}
-          </View>
-        )}
-
-        <TouchableOpacity style={styles.button} onPress={handleSave}>
-          {loading ? (
-            <ActivityIndicator color={NAVY} />
+              <Text style={styles.metaText}>Saved: {imagePath}</Text>
+            </View>
           ) : (
-            <Text style={styles.buttonText}>Save Circuit + Rooms + Images</Text>
+            <Text style={styles.metaText}>No main image uploaded yet.</Text>
           )}
-        </TouchableOpacity>
 
-        
-        {/* optional loading indicator (since fetchCircuits still exists) */}
-        {listLoading ? <ActivityIndicator color="#fff" style={{ marginTop: 10 }} /> : null}
-      </View>
+          <TouchableOpacity
+            style={[styles.btnOutline, uploadingMain && styles.btnDisabled]}
+            onPress={pickAndUploadMainImage}
+            disabled={uploadingMain}
+            activeOpacity={0.9}
+          >
+            {uploadingMain ? (
+              <>
+                <ActivityIndicator color={YELLOW} />
+                <Text style={styles.btnOutlineText}> Uploading...</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="cloud-upload-outline" size={18} color={YELLOW} />
+                <Text style={styles.btnOutlineText}>Pick & Upload Main Image</Text>
+              </>
+            )}
+          </TouchableOpacity>
 
-          {/* ✅ NEW BUTTON: Navigate to Existing Circuits screen */}
-        <TouchableOpacity
-          style={[styles.viewExistingCircuitsButton, { marginTop: 12 }]}
+          {/* Room types */}
+          <View style={[styles.divider, { marginTop: 18 }]} />
+          <Text style={styles.sectionTitle}>Add Room Types</Text>
+
+          <Text style={styles.label}>Room Name</Text>
+          <View style={[styles.inputWrap, focusField === 'roomName' && styles.inputFocus]}>
+            <Ionicons name="bed-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              value={roomName}
+              onChangeText={setRoomName}
+              placeholder="Room name"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              onFocus={() => setFocusField('roomName')}
+              onBlur={() => setFocusField(null)}
+            />
+          </View>
+
+          <Text style={[styles.label, { marginTop: 12 }]}>Room Count</Text>
+          <View style={[styles.inputWrap, focusField === 'roomCount' && styles.inputFocus]}>
+            <Ionicons name="layers-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              value={roomCount}
+              onChangeText={setRoomCount}
+              keyboardType="numeric"
+              placeholder="1"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              onFocus={() => setFocusField('roomCount')}
+              onBlur={() => setFocusField(null)}
+            />
+          </View>
+
+          <Text style={[styles.label, { marginTop: 12 }]}>Max Persons Per One Room</Text>
+          <View style={[styles.inputWrap, focusField === 'maxPersons' && styles.inputFocus]}>
+            <Ionicons name="people-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              value={maxPersons}
+              onChangeText={setMaxPersons}
+              keyboardType="numeric"
+              placeholder="1"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              onFocus={() => setFocusField('maxPersons')}
+              onBlur={() => setFocusField(null)}
+            />
+          </View>
+
+          <Text style={[styles.label, { marginTop: 12 }]}>Price Per Person</Text>
+          <View style={[styles.inputWrap, focusField === 'pricePerPerson' && styles.inputFocus]}>
+            <Ionicons name="cash-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              value={pricePerPerson}
+              onChangeText={setPricePerPerson}
+              keyboardType="numeric"
+              placeholder="0"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              onFocus={() => setFocusField('pricePerPerson')}
+              onBlur={() => setFocusField(null)}
+            />
+          </View>
+
+          <Text style={[styles.label, { marginTop: 12 }]}>Description</Text>
+          <View style={[styles.inputWrapArea, focusField === 'description' && styles.inputFocus]}>
+            <Ionicons name="document-text-outline" size={18} color={MUTED} />
+            <TextInput
+              style={[styles.input, { height: 84, textAlignVertical: 'top' }]}
+              value={description}
+              onChangeText={setDescription}
+              multiline
+              placeholder="Optional description"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              onFocus={() => setFocusField('description')}
+              onBlur={() => setFocusField(null)}
+            />
+          </View>
+
+          <TouchableOpacity style={styles.btnOutline} onPress={handleAddRoomType} activeOpacity={0.9}>
+            <Ionicons name="add-circle-outline" size={18} color={YELLOW} />
+            <Text style={styles.btnOutlineText}>Add Room Type</Text>
+          </TouchableOpacity>
+
+          {rooms.length > 0 && (
+            <View style={{ marginTop: 12 }}>
+              <Text style={styles.subHeader}>Added Room Types</Text>
+
+              {rooms.map((r, index) => (
+                <View key={index} style={styles.roomCard}>
+                  <View style={styles.roomCardTop}>
+                    <Text style={styles.roomTitle}>{r.room_Name}</Text>
+                    <View style={styles.miniPill}>
+                      <Ionicons name="pricetag-outline" size={13} color={YELLOW} />
+                      <Text style={styles.miniPillText}>Rs {r.price_per_person}</Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.roomMeta}>
+                    Count: {r.room_Count}  •  Max: {r.max_Persons}
+                  </Text>
+
+                  {r.description ? (
+                    <Text style={styles.roomDesc} numberOfLines={3}>
+                      {r.description}
+                    </Text>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Extra images */}
+          <View style={[styles.divider, { marginTop: 18 }]} />
+          <View style={styles.sectionRow}>
+            <Text style={styles.sectionTitle}>Extra Images</Text>
+            <Text style={styles.smallCount}>
+              {extraPreview.length ? `${extraPreview.length} selected` : '0 selected'}
+            </Text>
+          </View>
+
+          {extraPreview.length > 0 ? (
+            <Text style={styles.metaText}>Saved: {extraPreview.length} images</Text>
+          ) : (
+            <Text style={styles.metaText}>No extra images uploaded yet.</Text>
+          )}
+
+          <TouchableOpacity
+            style={[styles.btnOutline, uploadingExtra && styles.btnDisabled]}
+            onPress={pickAndUploadExtraImages}
+            disabled={uploadingExtra}
+            activeOpacity={0.9}
+          >
+            {uploadingExtra ? (
+              <>
+                <ActivityIndicator color={YELLOW} />
+                <Text style={styles.btnOutlineText}> Uploading...</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="images-outline" size={18} color={YELLOW} />
+                <Text style={styles.btnOutlineText}>Pick & Upload Extra Images</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          {extraPreview.length > 0 && (
+            <View style={{ marginTop: 10 }}>
+              {extraPreview.slice(0, 6).map((p, idx) => (
+                <Image
+                  key={p + idx}
+                  source={{ uri: toFullUrl(p) }}
+                  style={styles.previewExtra}
+                  resizeMode="cover"
+                />
+              ))}
+            </View>
+          )}
+
+          {/* Save */}
+          <TouchableOpacity
+            style={[styles.btnPrimary, loading && styles.btnDisabled]}
+            onPress={handleSave}
+            activeOpacity={0.9}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <ActivityIndicator color={NAVY} />
+                <Text style={styles.btnPrimaryText}> Saving...</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="save-outline" size={18} color={NAVY} />
+                <Text style={styles.btnPrimaryText}> Save Circuit + Rooms + Images</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          {/* optional loading indicator (since fetchCircuits still exists) */}
+          {listLoading ? <ActivityIndicator color="#fff" style={{ marginTop: 12 }} /> : null}
+        </View>
+
+        {/* ✅ Existing Circuits button (same logic, new style) */}
+        <Pressable
+          style={({ pressed }) => [styles.viewBtn, pressed && { transform: [{ scale: 0.99 }], opacity: 0.95 }]}
           onPress={() => router.push('/ExistingCircuits')}
         >
-          <Text style={styles.viewExistingCircuitsButtonButtonText}>View Existing Circuits</Text>
-        </TouchableOpacity>
+          <View style={styles.viewBtnIcon}>
+            <Ionicons name="list-outline" size={18} color={YELLOW} />
+          </View>
+          <Text style={styles.viewBtnText}>View Existing Circuits</Text>
+          <View style={styles.chevPill}>
+            <Ionicons name="chevron-forward" size={18} color={YELLOW} />
+          </View>
+        </Pressable>
 
-    </ScrollView>
+        <View style={{ height: 26 }} />
+      </ScrollView>
+    </LinearGradient>
   );
 }
 
-
-
 const styles = StyleSheet.create({
-  screen: { flexGrow: 1, backgroundColor: NAVY, paddingHorizontal: '6%', paddingTop: 40, paddingBottom: 30 },
-  title: { color: '#FFFFFF', fontSize: 22, fontWeight: '700', textAlign: 'center', marginBottom: 16 },
-  topRow: { position: 'absolute', top: 40, left: 20, zIndex: 10 },
-  backButton: { padding: 4 },
-  card: { width: '100%', backgroundColor: BLACK_BOX, borderRadius: 18, paddingHorizontal: 20, paddingVertical: 18 },
-  label: { color: '#FFFFFF', fontSize: 13, marginBottom: 4, marginTop: 10 },
-  sectionTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginBottom: 8 },
-  subHeader: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', marginBottom: 4 },
-  input: { backgroundColor: CREAM, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 10, fontSize: 14 },
-  button: { backgroundColor: YELLOW, borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 12 },
-  buttonText: { color: NAVY, fontWeight: '700', fontSize: 15 },
-  secondaryButton: { backgroundColor: '#2B2735', borderRadius: 10, paddingVertical: 10, alignItems: 'center', marginTop: 8 },
-  secondaryButtonText: { color: YELLOW, fontWeight: '600', fontSize: 14 },
-  roomChip: { borderRadius: 10, padding: 10, marginBottom: 6, backgroundColor: '#171422' },
-  roomChipTitle: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
-  roomChipText: { color: '#D6D0C6', fontSize: 12 },
-  cardLineSmall: { color: '#B8B0A5', fontSize: 12, marginTop: 2 },
-  viewExistingCircuitsButton: { backgroundColor: '#b1ec9d', borderRadius: 10, paddingVertical: 10, alignItems: 'center', marginTop: 8 },
-  viewExistingCircuitsButtonButtonText: { color: '#106625', fontWeight: '600', fontSize: 14 },
+  background: { flex: 1 },
+
+  screen: {
+    flexGrow: 1,
+    paddingHorizontal: '7%',
+    paddingTop: 90,
+    paddingBottom: 30,
+  },
+
+  headerBack: {
+    position: 'absolute',
+    top: 30,
+    left: 16,
+    zIndex: 10,
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+
+  header: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+
+  title: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+
+  subtitle: {
+    color: MUTED,
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 6,
+  },
+
+  card: {
+    backgroundColor: 'rgba(10,10,26,0.88)',
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+
+  sectionTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 10,
+  },
+
+  sectionTitle2: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  label: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    marginBottom: 6,
+    fontWeight: '700',
+  },
+
+  inputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    height: 48,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+
+  inputWrapArea: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+
+  inputFocus: {
+    borderColor: YELLOW,
+    backgroundColor: 'rgba(255,182,0,0.08)',
+  },
+
+  input: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 14,
+  },
+
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    marginVertical: 14,
+  },
+
+  metaText: {
+    color: MUTED2,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+
+  previewMain: {
+    width: '100%',
+    height: 170,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+
+  previewExtra: {
+    width: '100%',
+    height: 120,
+    borderRadius: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+
+  btnOutline: {
+    marginTop: 10,
+    width: '100%',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+
+  btnOutlineText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 13,
+  },
+
+  btnPrimary: {
+    marginTop: 14,
+    width: '100%',
+    backgroundColor: YELLOW,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+
+  btnPrimaryText: {
+    color: NAVY,
+    fontWeight: '900',
+    fontSize: 14,
+  },
+
+  btnDisabled: {
+    opacity: 0.72,
+  },
+
+  subHeader: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+
+  roomCard: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 10,
+  },
+
+  roomCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+
+  roomTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+    flex: 1,
+  },
+
+  roomMeta: {
+    color: MUTED,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 8,
+  },
+
+  roomDesc: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 8,
+    lineHeight: 16,
+  },
+
+  miniPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,182,0,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,182,0,0.25)',
+  },
+
+  miniPillText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 12,
+  },
+
+  sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+
+  smallCount: {
+    color: MUTED,
+    fontWeight: '900',
+    fontSize: 12,
+  },
+
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+
+  pillText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 12,
+  },
+
+  viewBtn: {
+    marginTop: 14,
+    borderRadius: 18,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(10,10,26,0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+
+  viewBtnIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,182,0,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,182,0,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  viewBtnText: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  chevPill: {
+    width: 34,
+    height: 34,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,182,0,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,182,0,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

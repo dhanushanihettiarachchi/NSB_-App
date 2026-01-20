@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { useBookingDraft } from './context/BookingDraftContext';
-import { API_URL } from './config';
+import { API_URL } from '../src/services/config';
 
 const NAVY = '#020038';
 const BLACK_BOX = '#050515';

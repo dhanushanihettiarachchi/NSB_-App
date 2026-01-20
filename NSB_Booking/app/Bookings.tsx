@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Calendar } from 'react-native-calendars';
 import { LinearGradient } from 'expo-linear-gradient';
-import { API_URL } from './config';
+import { API_URL } from '../src/services/config';
 import { useBookingDraft } from './context/BookingDraftContext';
 
 type Room = {

@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { API_URL } from "./config";
+import { API_URL } from "../src/services/config";
 import { useBookingDraft } from "./context/BookingDraftContext";
 
 const NAVY = "#020038";

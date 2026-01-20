@@ -13,7 +13,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { API_URL } from './config';
+import { API_URL } from '../src/services/config';
 
 const NAVY = '#020038';
 const BLACK_BOX = '#050515';
