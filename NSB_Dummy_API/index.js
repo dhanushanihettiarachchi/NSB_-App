@@ -8,6 +8,7 @@ const adminRoutes = require('./routes/admin');
 const circuitRoutes = require('./routes/circuits');
 const bookingRoutes = require('./routes/bookings');
 const paymentRoutes = require('./routes/payments');
+const qrCodesRouter = require('./routes/qrCodes');
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use('/admin', adminRoutes);
 app.use('/circuits', circuitRoutes);
 app.use('/bookings', bookingRoutes);
 app.use('/payments', paymentRoutes);
+app.use('/qr-codes', qrCodesRouter);
 
 app.get('/ping', (req, res) => res.send('pong'));
 

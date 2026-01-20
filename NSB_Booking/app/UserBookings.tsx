@@ -82,6 +82,9 @@ export default function UserBookings() {
   const params = useLocalSearchParams();
   const userId = Number(params.userId ?? 0);
 
+  // ✅ ADDED ONLY: bookingId coming from QR deep link
+  const bookingIdFromQR = Number(params.bookingId ?? 0);
+
   const { setDraft } = useBookingDraft();
 
   const [filter, setFilter] = useState<Filter>("Pending");
@@ -138,6 +141,12 @@ export default function UserBookings() {
     setRefreshing(false);
   };
 
+  // ✅ ADDED ONLY: if opened via QR, show All automatically
+  useEffect(() => {
+    if (bookingIdFromQR) setFilter("All");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingIdFromQR]);
+
   // group rows by "same request": check-in + check-out + created_date + circuit
   const groups = useMemo(() => {
     const map = new Map<string, BookingRow[]>();
@@ -172,12 +181,28 @@ export default function UserBookings() {
     return groups.filter((g) => normalizeStatus(g.rows[0]?.status) === filter);
   }, [groups, filter]);
 
+  // ✅ ADDED ONLY: move QR matching group to top
+  const qrFocusedGroups = useMemo(() => {
+    if (!bookingIdFromQR) return filteredGroups;
+
+    const match = groups.find((g) =>
+      g.rows.some((r) => r.booking_id === bookingIdFromQR)
+    );
+    if (!match) return filteredGroups;
+
+    const rest = filteredGroups.filter((x) => x.key !== match.key);
+    return [match, ...rest];
+  }, [bookingIdFromQR, groups, filteredGroups]);
+
   // ✅ compute estimated total from group rows
   const computeGrandTotal = (gRows: BookingRow[]) => {
     if (!gRows.length) return 0;
 
     const first = gRows[0];
-    const nights = diffNights(fmtDate(first.check_in_date), fmtDate(first.check_out_date));
+    const nights = diffNights(
+      fmtDate(first.check_in_date),
+      fmtDate(first.check_out_date)
+    );
     if (!nights) return 0;
 
     // Σ(guest_count * price_per_person) * nights
@@ -197,7 +222,9 @@ export default function UserBookings() {
 
   // ✅ get rejection reason from ANY row in group
   const getGroupRejectionReason = (gRows: BookingRow[]) => {
-    const found = gRows.find((r) => String(r.rejection_reason || "").trim().length > 0);
+    const found = gRows.find(
+      (r) => String(r.rejection_reason || "").trim().length > 0
+    );
     return found ? String(found.rejection_reason).trim() : "";
   };
 
@@ -205,7 +232,10 @@ export default function UserBookings() {
     const first = g.rows[0];
     const booking_ids = g.rows.map((x) => x.booking_id);
 
-    const nights = diffNights(fmtDate(first.check_in_date), fmtDate(first.check_out_date));
+    const nights = diffNights(
+      fmtDate(first.check_in_date),
+      fmtDate(first.check_out_date)
+    );
     const totalGuests = g.rows.reduce((s, x) => s + (x.guest_count || 0), 0);
     const totalRooms = g.rows.reduce((s, x) => s + (x.need_room_count || 0), 0);
 
@@ -258,8 +288,9 @@ export default function UserBookings() {
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.headerBack} onPress={() => router.back()}>
-        <Ionicons name="chevron-back" size={28} color="#FFFFFF" />
+      {/* ✅ UPDATED BACK BUTTON (new style) */}
+      <TouchableOpacity style={styles.headerBack} onPress={() => router.back()} activeOpacity={0.9}>
+        <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
       </TouchableOpacity>
 
       <Text style={styles.title}>My Bookings</Text>
@@ -272,6 +303,7 @@ export default function UserBookings() {
               key={f}
               onPress={() => setFilter(f)}
               style={[styles.filterBtn, active && styles.filterBtnActive]}
+              activeOpacity={0.9}
             >
               <Text style={[styles.filterText, active && styles.filterTextActive]}>
                 {f}
@@ -286,7 +318,7 @@ export default function UserBookings() {
           <ActivityIndicator color={YELLOW} />
           <Text style={styles.hint}>Loading bookings...</Text>
         </View>
-      ) : filteredGroups.length === 0 ? (
+      ) : qrFocusedGroups.length === 0 ? (
         <View style={styles.center}>
           <Ionicons name="briefcase-outline" size={36} color={CREAM_INPUT} />
           <Text style={styles.hint}>No bookings found for this filter.</Text>
@@ -298,9 +330,12 @@ export default function UserBookings() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
-          {filteredGroups.map((g) => {
+          {qrFocusedGroups.map((g) => {
             const first = g.rows[0];
-            const nights = diffNights(fmtDate(first.check_in_date), fmtDate(first.check_out_date));
+            const nights = diffNights(
+              fmtDate(first.check_in_date),
+              fmtDate(first.check_out_date)
+            );
             const totalGuests = g.rows.reduce((s, x) => s + (x.guest_count || 0), 0);
             const totalRooms = g.rows.reduce((s, x) => s + (x.need_room_count || 0), 0);
 
@@ -311,17 +346,29 @@ export default function UserBookings() {
             const rejectionReason =
               statusLabel === "Rejected" ? getGroupRejectionReason(g.rows) : "";
 
+            const isQrMatch =
+              !!bookingIdFromQR &&
+              g.rows.some((r) => r.booking_id === bookingIdFromQR);
+
             return (
-              <View key={g.key} style={styles.card}>
+              <View
+                key={g.key}
+                style={[styles.card, isQrMatch && styles.cardHighlight]} // ✅ ADDED ONLY
+              >
                 <View style={styles.cardTop}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.cardTitle}>
                       {first.circuit_Name || "Circuit"}
                     </Text>
                     <View style={styles.locRow}>
-                      <Ionicons name="location-outline" size={14} color={CREAM_INPUT} />
+                      <Ionicons
+                        name="location-outline"
+                        size={14}
+                        color={CREAM_INPUT}
+                      />
                       <Text style={styles.locText}>
-                        {(first.city || "") + (first.street ? ` - ${first.street}` : "")}
+                        {(first.city || "") +
+                          (first.street ? ` - ${first.street}` : "")}
                       </Text>
                     </View>
                   </View>
@@ -397,25 +444,33 @@ export default function UserBookings() {
                 {/* Payment state */}
                 {hasSlip ? (
                   <View style={styles.paidBox}>
-                    <Ionicons name="checkmark-circle-outline" size={16} color={YELLOW} />
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={16}
+                      color={YELLOW}
+                    />
                     <Text style={styles.paidText}>Payment Proof Uploaded</Text>
                   </View>
                 ) : (
-                  // ✅ OPTIONAL: If rejected, you can still allow upload, but usually not needed.
-                  // If you want to block pay button when rejected, uncomment below:
-                  // statusLabel === "Rejected" ? null : (
                   <TouchableOpacity
                     style={styles.payBtn}
                     activeOpacity={0.9}
                     onPress={() => goUploadSlip(g)}
                   >
-                    <Ionicons name="cloud-upload-outline" size={18} color={BTN_TEXT} />
-                    <Text style={styles.payBtnText}>Upload Payment Slip (Pay Now)</Text>
+                    <Ionicons
+                      name="cloud-upload-outline"
+                      size={18}
+                      color={BTN_TEXT}
+                    />
+                    <Text style={styles.payBtnText}>
+                      Upload Payment Slip (Pay Now)
+                    </Text>
                   </TouchableOpacity>
-                  // )
                 )}
 
-                <Text style={styles.createdText}>Created: {fmtDate(first.created_date)}</Text>
+                <Text style={styles.createdText}>
+                  Created: {fmtDate(first.created_date)}
+                </Text>
               </View>
             );
           })}
@@ -426,11 +481,40 @@ export default function UserBookings() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: NAVY, paddingTop: 60, paddingHorizontal: "6%" },
-  headerBack: { position: "absolute", top: 20, left: 16, padding: 4, zIndex: 10 },
-  title: { color: "#FFFFFF", fontSize: 18, fontWeight: "900", textAlign: "center", marginBottom: 12 },
+  container: {
+    flex: 1,
+    backgroundColor: NAVY,
+    paddingTop: 60,
+    paddingHorizontal: "6%",
+  },
 
-  filters: { flexDirection: "row", justifyContent: "space-between", gap: 8, marginBottom: 12 },
+  /* ✅ Back button style (same as you gave) */
+  headerBack: {
+    position: "absolute",
+    top: 30,
+    left: 16,
+    padding: 6,
+    backgroundColor: "rgba(255,255,255,0.09)",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    zIndex: 20,
+  },
+
+  title: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "900",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+
+  filters: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 12,
+  },
   filterBtn: {
     flex: 1,
     borderWidth: 1,
@@ -455,6 +539,13 @@ const styles = StyleSheet.create({
     borderColor: CARD_EDGE,
     marginBottom: 12,
   },
+
+  // ✅ ADDED ONLY: highlight card from QR
+  cardHighlight: {
+    borderColor: YELLOW,
+    borderWidth: 2,
+  },
+
   cardTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   cardTitle: { color: "#FFFFFF", fontWeight: "900", fontSize: 14 },
   locRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },

@@ -8,6 +8,7 @@ import {
   TextInput,
   Platform,
   ScrollView,
+  Pressable,
   ActivityIndicator,
   Modal,
 } from 'react-native';
@@ -497,9 +498,13 @@ export default function Bookings() {
     if (checkOut <= checkIn) return 'Check-out date must be after check-in date.';
     if (!nights) return 'Please select valid dates (at least 1 night).';
 
+    // ✅ require time selection
+    if (!bookingTime) return 'Please select check-in time.';
+
     // ✅ enforce min time rule if applicable
     const time = bookingTime || '10:00';
     if (!validateMinTimeRule(checkIn, time)) return 'Please select a valid time.';
+
 
     // ✅ ensure range does not overlap approved bookings
     if (overlapsApproved(checkIn, checkOut, time, blocked)) {
@@ -554,8 +559,37 @@ export default function Bookings() {
         return;
       }
 
+      // ✅ ADDED PART ONLY (QR flow) — logic unchanged
       clearForm();
-      showUiError('Booking submitted ✅ (Pending). You can upload payment slip later.');
+
+      const booking_ids: number[] = Array.isArray(data?.booking_ids) ? data.booking_ids : [];
+      const bookingId = booking_ids[0] ? Number(booking_ids[0]) : 0;
+
+      if (!bookingId) {
+        showUiError('Booking submitted ✅ (Pending). You can upload payment slip later.');
+        return;
+      }
+
+      // ✅ Create / get QR record for this booking
+      const qrRes = await fetch(`${API_URL}/qr-codes/for-booking`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ booking_id: bookingId }),
+      });
+
+      const qrJson = await qrRes.json().catch(() => ({}));
+      const qrValue = String(qrJson?.qr?.qr_code_data || '');
+
+      router.push({
+        pathname: '/BookingQR',
+        params: {
+          bookingId: String(bookingId),
+          qrValue: qrValue || `myapp://UserBookings?bookingId=${bookingId}`,
+        },
+      });
+
+      showUiError('Booking submitted ✅ (Pending). QR generated.');
+      // ✅ END ADDED PART ONLY
     } catch (e) {
       console.log(e);
       showUiError('Unable to submit booking');
@@ -859,7 +893,7 @@ export default function Bookings() {
           )}
 
           {/* Time */}
-          <Label text="Check-in Time" />
+          <Label text="Check-in Time" required />
           {Platform.OS === 'web' ? (
             WebDatePicker ? (
               <WebDatePicker
@@ -1081,34 +1115,84 @@ export default function Bookings() {
           </View>
 
           {/* Buttons */}
-          <TouchableOpacity
-            style={[styles.primaryBtn, submitting && { opacity: 0.7 }]}
-            onPress={submitBookingPayLater}
-            disabled={submitting}
-            activeOpacity={0.9}
-          >
-            {submitting ? (
-              <>
-                <ActivityIndicator color={NAVY} />
-                <Text style={styles.primaryBtnText}>Submitting...</Text>
-              </>
-            ) : (
-              <>
-                <Ionicons name="checkmark-circle-outline" size={18} color={NAVY} />
-                <Text style={styles.primaryBtnText}>Submit Booking (Pay Later)</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          
+            <Pressable
+  onPress={submitBookingPayLater}
+  disabled={submitting}
+  style={({ pressed, hovered }) => [
+    styles.secondaryBtn, // default = Continue to Payment style
+    (pressed || hovered) && styles.primaryBtn, // active = yellow
+    submitting && { opacity: 0.7 },
+  ]}
+>
+  {({ pressed, hovered }) => {
+    const active = pressed || hovered;
 
-          <TouchableOpacity
-            style={[styles.secondaryBtn, submitting && { opacity: 0.7 }]}
-            onPress={continueToPaymentNow}
-            disabled={submitting}
-            activeOpacity={0.9}
-          >
-            <Ionicons name="card-outline" size={18} color={YELLOW} />
-            <Text style={styles.secondaryBtnText}>Continue to Payment</Text>
-          </TouchableOpacity>
+    return submitting ? (
+      <>
+        <ActivityIndicator color={active ? NAVY : YELLOW} />
+        <Text
+          style={[
+            styles.secondaryBtnText,
+            active && styles.primaryBtnText,
+          ]}
+        >
+          Submitting...
+        </Text>
+      </>
+    ) : (
+      <>
+        <Ionicons
+          name="checkmark-circle-outline"
+          size={18}
+          color={active ? NAVY : YELLOW}
+        />
+        <Text
+          style={[
+            styles.secondaryBtnText,
+            active && styles.primaryBtnText,
+          ]}
+        >
+          Submit Booking (Pay Later)
+        </Text>
+      </>
+    );
+  }}
+</Pressable>
+
+
+  <Pressable
+    onPress={continueToPaymentNow}
+    disabled={submitting}
+    style={({ pressed, hovered }) => [
+    styles.secondaryBtn, // default style
+    (pressed || hovered) && styles.primaryBtn, // active = yellow
+    submitting && { opacity: 0.7 },
+  ]}
+>
+  {({ pressed, hovered }) => {
+    const active = pressed || hovered;
+
+    return (
+      <>
+        <Ionicons
+          name="card-outline"
+          size={18}
+          color={active ? NAVY : YELLOW}
+        />
+        <Text
+          style={[
+            styles.secondaryBtnText,
+            active && styles.primaryBtnText,
+          ]}
+        >
+          Continue to Payment
+        </Text>
+      </>
+    );
+  }}
+</Pressable>
+
 
           {!!minTimeForSelectedCheckIn && (
             <Text style={styles.smallHint}>
@@ -1334,7 +1418,7 @@ const styles = StyleSheet.create({
   },
 
   errorBanner: {
-    backgroundColor: '#B00020',
+    backgroundColor: '#ce3333',
     borderRadius: 14,
     paddingVertical: 10,
     paddingHorizontal: 12,
@@ -1785,7 +1869,7 @@ const styles = StyleSheet.create({
   popupCard: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#B00020',
+    backgroundColor: '#0066be',
     borderRadius: 18,
     padding: 16,
     borderWidth: 1,
