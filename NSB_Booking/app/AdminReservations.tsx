@@ -1,4 +1,4 @@
-// app/AdminReservations.tsx
+// AdminReservations.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -12,12 +12,25 @@ import {
   Alert,
   RefreshControl,
   InteractionManager,
+  Pressable,
+  ScrollView, // ✅ FIXED
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { API_BASE, bookingsApi, paymentsApi } from "../src/services/api";
+import { LinearGradient } from "expo-linear-gradient";
+import { bookingsApi, paymentsApi } from "../src/services/api"; // ✅ FIXED
+import { API_URL } from "../src/services/config"; // ✅ FIXED
+
+
+
 
 const TABS = ["Pending", "Approved", "Rejected", "All"];
+
+const NAVY = "#020038";
+const YELLOW = "#FFB600";
+const MUTED = "rgba(255,255,255,0.70)";
+const MUTED2 = "rgba(255,255,255,0.45)";
+const CARD_BG = "rgba(10,10,26,0.88)";
 
 function safeDate(d: any) {
   if (!d) return "-";
@@ -25,7 +38,6 @@ function safeDate(d: any) {
 }
 function safeTime(t: any) {
   if (!t) return "-";
-  // sometimes SQL time comes like "1970-01-01T10:30:00.000Z"
   const s = String(t);
   if (s.includes("T")) return s.split("T")[1]?.slice(0, 5) || "-";
   if (s.length >= 5) return s.slice(0, 5);
@@ -91,7 +103,6 @@ export default function AdminReservations() {
 
   const openDetails = async (item: any) => {
     setSelected(item);
-    // ✅ fastest: from admin list query (OUTER APPLY)
     if (item.payment_slip_path) {
       setPaymentUrl(String(item.payment_slip_path));
     } else {
@@ -100,7 +111,6 @@ export default function AdminReservations() {
 
     setDetailsVisible(true);
 
-    // fallback: call /payments/booking/:id/latest (in case old data)
     if (!item.payment_slip_path) {
       try {
         const pay = await paymentsApi.latestByBooking(item.booking_id);
@@ -114,7 +124,8 @@ export default function AdminReservations() {
   const fullProofUrl = useMemo(() => {
     if (!paymentUrl) return null;
     if (paymentUrl.startsWith("http")) return paymentUrl;
-    return `${API_BASE}${paymentUrl}`;
+    return `${API_URL}${paymentUrl}`;
+
   }, [paymentUrl]);
 
   const approveBooking = async () => {
@@ -150,277 +161,552 @@ export default function AdminReservations() {
     }
   };
 
-  const renderItem = ({ item }: any) => (
-    <TouchableOpacity style={styles.card} onPress={() => openDetails(item)}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>
-          {item.circuit_Name || item.room_Name || "Booking"}
-        </Text>
+  const renderItem = ({ item }: any) => {
+    const statusStyle =
+      item.status === "Pending"
+        ? styles.statusPending
+        : item.status === "Approved"
+        ? styles.statusApproved
+        : styles.statusRejected;
 
-        <View
-          style={[
-            styles.status,
-            item.status === "Pending"
-              ? styles.pending
-              : item.status === "Approved"
-              ? styles.approved
-              : styles.rejected,
-          ]}
-        >
-          <Text style={styles.statusText}>{item.status}</Text>
+    const statusIcon =
+      item.status === "Pending"
+        ? "time-outline"
+        : item.status === "Approved"
+        ? "checkmark-circle-outline"
+        : "close-circle-outline";
+
+    return (
+      <Pressable
+        style={({ pressed }) => [
+          styles.card,
+          pressed && { opacity: 0.95, transform: [{ scale: 0.995 }] },
+        ]}
+        onPress={() => openDetails(item)}
+      >
+        <View style={styles.cardHeader}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle} numberOfLines={1}>
+              {item.circuit_Name || item.room_Name || "Booking"}
+            </Text>
+            <Text style={styles.subText} numberOfLines={1}>
+              Booking ID: {item.booking_id}{" "}
+              {item.user_name ? `| User: ${item.user_name}` : `| User ID: ${item.user_id}`}
+            </Text>
+          </View>
+
+          <View style={[styles.statusPill, statusStyle]}>
+            <Ionicons name={statusIcon as any} size={14} color={item.status === "Pending" ? NAVY : "#fff"} />
+            <Text
+              style={[
+                styles.statusText,
+                item.status === "Pending" ? { color: NAVY } : { color: "#fff" },
+              ]}
+            >
+              {item.status}
+            </Text>
+          </View>
         </View>
-      </View>
 
-      <Text style={styles.subText}>
-        Booking ID: {item.booking_id} | {item.user_name ? `User: ${item.user_name}` : `User ID: ${item.user_id}`}
-      </Text>
+        <View style={styles.rowLine}>
+          <Ionicons name="location-outline" size={16} color={YELLOW} />
+          <Text style={styles.rowText}>
+            {item.city || ""} {item.street || ""}
+          </Text>
+        </View>
 
-      <Text style={styles.subText}>
-        {item.city || ""} {item.street || ""}
-      </Text>
+        <View style={styles.rowLine}>
+          <Ionicons name="calendar-outline" size={16} color={YELLOW} />
+          <Text style={styles.rowText}>
+            {safeDate(item.check_in_date)} → {safeDate(item.check_out_date)}
+          </Text>
+        </View>
 
-      <Text style={styles.subText}>
-        {safeDate(item.check_in_date)} → {safeDate(item.check_out_date)}
-      </Text>
+        <View style={styles.rowLine}>
+          <Ionicons name="people-outline" size={16} color={YELLOW} />
+          <Text style={styles.rowText}>
+            Guests: {item.guest_count} • Rooms: {item.need_room_count}
+          </Text>
+        </View>
 
-      <Text style={styles.subText}>
-        Guests: {item.guest_count} | Rooms: {item.need_room_count}
-      </Text>
-
-      <Text style={styles.queueText}>
-        Queue Time: {String(item.created_date || "").slice(0, 19).replace("T", " ")}
-      </Text>
-    </TouchableOpacity>
-  );
+        <Text style={styles.queueText}>
+          Queue Time: {String(item.created_date || "").slice(0, 19).replace("T", " ")}
+        </Text>
+      </Pressable>
+    );
+  };
 
   const nights = selected ? calcNights(selected.check_in_date, selected.check_out_date) : 0;
 
   return (
-    <View style={styles.container}>
-      <TouchableOpacity style={styles.back} onPress={() => router.back()}>
-        <Ionicons name="chevron-back" size={28} color="#fff" />
+    <LinearGradient colors={["#020038", "#05004A", "#020038"]} style={styles.background}>
+      {/* Back button (same style) */}
+      <TouchableOpacity style={styles.headerBack} onPress={() => router.back()} activeOpacity={0.9}>
+        <Ionicons name="chevron-back" size={26} color="#fff" />
       </TouchableOpacity>
 
-      <Text style={styles.title}>All Reservations</Text>
-
-      <View style={styles.tabs}>
-        {TABS.map((t) => (
-          <TouchableOpacity
-            key={t}
-            style={[styles.tab, activeTab === t && styles.tabActive]}
-            onPress={() => setActiveTab(t)}
-          >
-            <Text style={[styles.tabText, activeTab === t && styles.tabTextActive]}>
-              {t}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.title}>All Reservations</Text>
+        <Text style={styles.subtitle}>Review pending payments & booking requests</Text>
       </View>
 
+      {/* Tabs */}
+      <View style={styles.tabsWrap}>
+        <View style={styles.tabsCard}>
+          {TABS.map((t) => {
+            const active = activeTab === t;
+            return (
+              <TouchableOpacity
+                key={t}
+                style={[styles.tab, active && styles.tabActive]}
+                onPress={() => setActiveTab(t)}
+                activeOpacity={0.9}
+              >
+                <Text style={[styles.tabText, active && styles.tabTextActive]}>{t}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* List */}
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 30 }} />
+        <View style={styles.center}>
+          <ActivityIndicator color={YELLOW} size="large" />
+          <Text style={styles.loadingText}>Loading reservations...</Text>
+        </View>
       ) : (
         <FlatList
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
           data={bookings}
           keyExtractor={(i) => String(i.booking_id)}
           renderItem={renderItem}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={YELLOW} />}
           ListEmptyComponent={
-            <Text style={{ color: "#B8C4E6", textAlign: "center", marginTop: 40 }}>
-              No reservations found
-            </Text>
+            <Text style={styles.emptyText}>No reservations found</Text>
           }
         />
       )}
 
       {/* DETAILS MODAL */}
       <Modal visible={detailsVisible} animationType="slide" transparent={false}>
-        <View style={styles.modal}>
-          <TouchableOpacity onPress={() => setDetailsVisible(false)}>
-            <Ionicons name="close" size={28} color="#fff" />
+        <LinearGradient colors={["#020038", "#05004A", "#020038"]} style={styles.modalBg}>
+          <TouchableOpacity
+            style={styles.modalClose}
+            onPress={() => setDetailsVisible(false)}
+            activeOpacity={0.9}
+          >
+            <Ionicons name="close" size={20} color="#fff" />
           </TouchableOpacity>
 
-          {selected && (
-            <>
-              <Text style={styles.modalTitle}>
-                {selected.circuit_Name || selected.room_Name || "Booking"}
-              </Text>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={styles.modalContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {selected && (
+              <View style={styles.modalCard}>
+                <Text style={styles.modalTitle} numberOfLines={2}>
+                  {selected.circuit_Name || selected.room_Name || "Booking"}
+                </Text>
 
-              <Text style={styles.modalText}>Booking ID: {selected.booking_id}</Text>
-              <Text style={styles.modalText}>User: {selected.user_name || `User ID ${selected.user_id}`}</Text>
+                <View style={styles.modalDivider} />
 
-              <Text style={styles.modalText}>Check-in: {safeDate(selected.check_in_date)}</Text>
-              <Text style={styles.modalText}>Check-out: {safeDate(selected.check_out_date)}</Text>
-              <Text style={styles.modalText}>Time: {safeTime(selected.booking_time)}</Text>
+                <InfoRow icon="key-outline" label="Booking ID" value={String(selected.booking_id)} />
+                <InfoRow icon="person-outline" label="User" value={selected.user_name || `User ID ${selected.user_id}`} />
+                <InfoRow icon="calendar-outline" label="Check-in" value={safeDate(selected.check_in_date)} />
+                <InfoRow icon="calendar-outline" label="Check-out" value={safeDate(selected.check_out_date)} />
+                <InfoRow icon="time-outline" label="Time" value={safeTime(selected.booking_time)} />
+                <InfoRow icon="people-outline" label="Guests" value={String(selected.guest_count)} />
+                <InfoRow icon="home-outline" label="Rooms" value={String(selected.need_room_count)} />
+                <InfoRow icon="moon-outline" label="Nights" value={String(nights)} />
+                <InfoRow
+                  icon="cash-outline"
+                  label="Estimated Total"
+                  value={`Rs ${Number(selected.estimated_total || 0).toFixed(2)}`}
+                />
+                <InfoRow icon="information-circle-outline" label="Purpose" value={selected.purpose || "-"} />
+                <InfoRow icon="shield-checkmark-outline" label="Status" value={selected.status} />
 
-              <Text style={styles.modalText}>Guests: {selected.guest_count}</Text>
-              <Text style={styles.modalText}>Rooms: {selected.need_room_count}</Text>
-              <Text style={styles.modalText}>Nights: {nights}</Text>
+                <TouchableOpacity
+                  style={styles.viewSlipBtn}
+                  activeOpacity={0.9}
+                  onPress={() => {
+                    if (!fullProofUrl) {
+                      Alert.alert("No payment proof uploaded");
+                      return;
+                    }
 
-              <Text style={styles.modalText}>
-                Estimated Total: Rs {Number(selected.estimated_total || 0).toFixed(2)}
-              </Text>
+                    setRejectVisible(false);
+                    setDetailsVisible(false);
 
-              <Text style={styles.modalText}>Purpose: {selected.purpose || "-"}</Text>
-              <Text style={styles.modalText}>Status: {selected.status}</Text>
-
-              <TouchableOpacity
-                style={styles.viewSlip}
-                onPress={() => {
-                  if (!fullProofUrl) {
-                    Alert.alert("No payment proof uploaded");
-                    return;
-                  }
-
-                  // ✅ close modal first, then navigate (prevents "close first then show" bug)
-                  setRejectVisible(false);
-                  setDetailsVisible(false);
-
-                  InteractionManager.runAfterInteractions(() => {
-                    router.push({
-                      pathname: "/PaymentProofViewer",
-                      params: { url: fullProofUrl },
+                    InteractionManager.runAfterInteractions(() => {
+                      router.push({
+                        pathname: "/PaymentProofViewer",
+                        params: { url: fullProofUrl },
+                      });
                     });
-                  });
-                }}
-              >
-                <Text style={styles.viewSlipText}>View Payment Proof</Text>
-              </TouchableOpacity>
+                  }}
+                >
+                  <Ionicons name="document-text-outline" size={18} color={YELLOW} />
+                  <Text style={styles.viewSlipText}>View Payment Proof</Text>
+                </TouchableOpacity>
 
-              {selected.status === "Pending" && (
-                <View style={styles.actions}>
-                  <TouchableOpacity style={styles.approve} onPress={approveBooking}>
-                    <Text style={styles.actionTextDark}>Approve</Text>
-                  </TouchableOpacity>
+                {selected.status === "Pending" && (
+                  <View style={styles.actions}>
+                    <TouchableOpacity style={styles.approveBtn} onPress={approveBooking} activeOpacity={0.9}>
+                      <Text style={styles.approveText}>Approve</Text>
+                    </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.reject} onPress={() => setRejectVisible(true)}>
-                    <Text style={styles.actionTextLight}>Reject</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </>
-          )}
+                    <TouchableOpacity style={styles.rejectBtn} onPress={() => setRejectVisible(true)} activeOpacity={0.9}>
+                      <Text style={styles.rejectText}>Reject</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            )}
+
+            <View style={{ height: 24 }} />
+          </ScrollView>
 
           {/* Reject modal */}
           <Modal visible={rejectVisible} transparent animationType="fade">
             <View style={styles.rejectOverlay}>
-              <View style={styles.rejectBox}>
-                <Text style={styles.rejectTitle}>Reject Booking</Text>
-                <TextInput
-                  value={rejectReason}
-                  onChangeText={setRejectReason}
-                  placeholder="Reason"
-                  placeholderTextColor="#999"
-                  style={styles.input}
-                />
-                <TouchableOpacity style={styles.submitReject} onPress={submitReject}>
-                  <Text style={{ fontWeight: "700" }}>Submit</Text>
+              <View style={styles.rejectCard}>
+                <View style={styles.rejectTop}>
+                  <Text style={styles.rejectTitle}>Reject Booking</Text>
+                  <TouchableOpacity onPress={() => setRejectVisible(false)} style={styles.rejectClose} activeOpacity={0.9}>
+                    <Ionicons name="close" size={18} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.rejectHint}>Please enter the reason for rejection.</Text>
+
+                <View style={styles.inputWrap}>
+                  <Ionicons name="alert-circle-outline" size={18} color={MUTED} />
+                  <TextInput
+                    value={rejectReason}
+                    onChangeText={setRejectReason}
+                    placeholder="Reason"
+                    placeholderTextColor="rgba(255,255,255,0.45)"
+                    style={styles.rejectInput}
+                    multiline
+                  />
+                </View>
+
+                <TouchableOpacity style={styles.submitReject} onPress={submitReject} activeOpacity={0.9}>
+                  <Text style={styles.submitRejectText}>Submit</Text>
                 </TouchableOpacity>
               </View>
             </View>
           </Modal>
-        </View>
+        </LinearGradient>
       </Modal>
+    </LinearGradient>
+  );
+}
+
+function InfoRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.infoRow}>
+      <View style={styles.infoIcon}>
+        <Ionicons name={icon} size={18} color={YELLOW} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.infoLabel}>{label}</Text>
+        <Text style={styles.infoValue}>{value}</Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#00113D", padding: 16 },
-  back: { marginTop: 40 },
+  background: { flex: 1 },
+
+  headerBack: {
+    position: "absolute",
+    top: 30,
+    left: 16,
+    zIndex: 20,
+    padding: 6,
+    backgroundColor: "rgba(255,255,255,0.09)",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+  },
+
+  header: {
+    position: "absolute",
+    top: 78,
+    left: 0,
+    right: 0,
+    zIndex: 15,
+    alignItems: "center",
+    paddingHorizontal: "7%",
+  },
+
   title: {
     color: "#fff",
     fontSize: 22,
-    fontWeight: "800",
+    fontWeight: "900",
     textAlign: "center",
-    marginVertical: 16,
   },
 
-  tabs: { flexDirection: "row", justifyContent: "space-between" },
+  subtitle: {
+    color: MUTED,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 6,
+    textAlign: "center",
+  },
+
+  tabsWrap: {
+    paddingHorizontal: "7%",
+    paddingTop: 130,
+  },
+
+  tabsCard: {
+    backgroundColor: CARD_BG,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    padding: 10,
+    flexDirection: "row",
+    gap: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+
   tab: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: "#2A3A74",
-    margin: 4,
-    paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 999,
+    paddingVertical: 10,
     alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
   },
-  tabActive: { backgroundColor: "#FFB600" },
-  tabText: { color: "#fff", fontSize: 12 },
-  tabTextActive: { color: "#00113D", fontWeight: "700" },
+
+  tabActive: {
+    backgroundColor: YELLOW,
+    borderColor: "rgba(255,182,0,0.35)",
+  },
+
+  tabText: { color: "rgba(255,255,255,0.80)", fontSize: 12, fontWeight: "900" },
+  tabTextActive: { color: NAVY },
+
+  center: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: "7%" },
+  loadingText: { color: "#fff", marginTop: 10, fontWeight: "700" },
+
+  list: { flex: 1, backgroundColor: "transparent" },
+  listContent: {
+    paddingHorizontal: "7%",
+    paddingTop: 14,
+    paddingBottom: 18,
+  },
+
+  emptyText: { color: "rgba(255,255,255,0.75)", textAlign: "center", marginTop: 40, fontWeight: "800" },
 
   card: {
-    backgroundColor: "#071642",
+    backgroundColor: CARD_BG,
+    borderRadius: 22,
     padding: 14,
-    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    elevation: 8,
     marginTop: 12,
   },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between" },
-  cardTitle: { color: "#fff", fontWeight: "800" },
-  subText: { color: "#B8C4E6", marginTop: 4 },
-  queueText: { color: "#8EA2D9", marginTop: 8, fontSize: 12 },
 
-  status: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  statusText: { fontSize: 11, fontWeight: "800" },
-  pending: { backgroundColor: "#FFB600" },
-  approved: { backgroundColor: "#5CFFB0" },
-  rejected: { backgroundColor: "#FF5C5C" },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
 
-  modal: { flex: 1, backgroundColor: "#00113D", padding: 16 },
-  modalTitle: { color: "#fff", fontSize: 18, fontWeight: "800", marginTop: 16 },
-  modalText: { color: "#B8C4E6", marginTop: 8 },
+  cardTitle: { color: "#fff", fontWeight: "900", fontSize: 14 },
 
-  viewSlip: {
-    marginTop: 20,
-    padding: 14,
-    borderRadius: 12,
+  subText: { color: "rgba(255,255,255,0.72)", marginTop: 6, fontWeight: "700", fontSize: 12 },
+
+  rowLine: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
+  rowText: { color: "rgba(255,255,255,0.78)", fontWeight: "800", fontSize: 12 },
+
+  queueText: { color: MUTED2, marginTop: 10, fontSize: 11, fontWeight: "800" },
+
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  statusText: { fontSize: 11, fontWeight: "900" },
+
+  statusPending: { backgroundColor: YELLOW },
+  statusApproved: { backgroundColor: "rgba(92,255,176,0.30)", borderWidth: 1, borderColor: "rgba(92,255,176,0.35)" },
+  statusRejected: { backgroundColor: "rgba(255,92,92,0.25)", borderWidth: 1, borderColor: "rgba(255,92,92,0.35)" },
+
+  modalBg: { flex: 1 },
+
+  modalClose: {
+    position: "absolute",
+    top: 30,
+    right: 16,
+    zIndex: 30,
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.09)",
     borderWidth: 1,
-    borderColor: "#FFB600",
+    borderColor: "rgba(255,255,255,0.10)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  viewSlipText: { color: "#FFB600", textAlign: "center", fontWeight: "700" },
 
-  actions: { flexDirection: "row", marginTop: 20, gap: 10 },
-  approve: {
+  modalContent: {
+    flexGrow: 1,
+    paddingHorizontal: "7%",
+    paddingTop: 90,
+    paddingBottom: 30,
+  },
+
+  modalCard: {
+    backgroundColor: CARD_BG,
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+
+  modalTitle: { color: "#fff", fontSize: 18, fontWeight: "900", textAlign: "center" },
+
+  modalDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.10)", marginVertical: 16 },
+
+  infoRow: { flexDirection: "row", gap: 10, alignItems: "center", paddingVertical: 10 },
+  infoIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,182,0,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(255,182,0,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  infoLabel: { color: MUTED, fontWeight: "800", fontSize: 12 },
+  infoValue: { color: "#fff", fontWeight: "900", fontSize: 13, marginTop: 2 },
+
+  viewSlipBtn: {
+    marginTop: 16,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+    backgroundColor: "rgba(255,182,0,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(255,182,0,0.30)",
+  },
+  viewSlipText: { color: YELLOW, fontWeight: "900" },
+
+  actions: { flexDirection: "row", gap: 12, marginTop: 16 },
+
+  approveBtn: {
     flex: 1,
-    backgroundColor: "#FFB600",
-    padding: 14,
-    borderRadius: 12,
+    backgroundColor: YELLOW,
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: "center",
   },
-  reject: {
+  approveText: { color: NAVY, fontWeight: "900" },
+
+  rejectBtn: {
     flex: 1,
-    backgroundColor: "#FF3B3B",
-    padding: 14,
-    borderRadius: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,120,120,0.30)",
+    backgroundColor: "rgba(255,90,90,0.18)",
+    paddingVertical: 14,
     alignItems: "center",
   },
-  actionTextDark: { color: "#00113D", fontWeight: "800" },
-  actionTextLight: { color: "#fff", fontWeight: "800" },
+  rejectText: { color: "#FFB3B3", fontWeight: "900" },
 
   rejectOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.60)",
     justifyContent: "center",
     padding: 20,
   },
-  rejectBox: {
-    backgroundColor: "#fff",
+
+  rejectCard: {
+    backgroundColor: "rgba(10,10,26,0.98)",
+    borderRadius: 20,
     padding: 16,
-    borderRadius: 12,
-  },
-  rejectTitle: { fontWeight: "800", marginBottom: 10 },
-  input: {
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 10,
+    borderColor: "rgba(255,255,255,0.10)",
   },
-  submitReject: {
-    backgroundColor: "#FFB600",
-    padding: 12,
-    borderRadius: 8,
+
+  rejectTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  rejectTitle: { color: "#fff", fontWeight: "900", fontSize: 16 },
+  rejectClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  rejectHint: { marginTop: 10, color: MUTED, fontWeight: "700", fontSize: 12 },
+
+  inputWrap: {
     marginTop: 12,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+
+  rejectInput: { flex: 1, color: "#fff", fontSize: 14, minHeight: 70 },
+
+  submitReject: {
+    marginTop: 12,
+    backgroundColor: YELLOW,
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: "center",
   },
+  submitRejectText: { color: NAVY, fontWeight: "900", fontSize: 14 },
 });
