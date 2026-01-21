@@ -1,3 +1,4 @@
+// NSB_Booking/app/UserAccess.tsx
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
@@ -28,6 +29,7 @@ type User = {
   last_name: string;
   email: string;
   role: string;
+  circuit_id?: number | null; // ✅ added (returned by backend /admin/users)
 };
 
 type Role = {
@@ -36,12 +38,23 @@ type Role = {
   description?: string;
 };
 
+type Circuit = {
+  circuit_Id: number;
+  circuit_Name: string;
+  city?: string;
+  street?: string;
+};
+
 export default function UserAccessScreen() {
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [circuits, setCircuits] = useState<Circuit[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [savingUserId, setSavingUserId] = useState<number | null>(null);
+
   const [selectedRoles, setSelectedRoles] = useState<{ [key: number]: number }>({});
+  const [selectedCircuits, setSelectedCircuits] = useState<{ [key: number]: number }>({}); // ✅ added
   const [searchText, setSearchText] = useState('');
 
   // TODO: later get from logged-in user
@@ -50,26 +63,37 @@ export default function UserAccessScreen() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [usersRes, rolesRes] = await Promise.all([
+        const [usersRes, rolesRes, circuitsRes] = await Promise.all([
           fetch(`${API_URL}/admin/users`),
           fetch(`${API_URL}/admin/roles`),
+          fetch(`${API_URL}/circuits`),
         ]);
 
         const usersData = await usersRes.json();
         const rolesData = await rolesRes.json();
+        const circuitsData = await circuitsRes.json();
 
         setUsers(usersData.users || []);
         setRoles(rolesData.roles || []);
+        setCircuits(Array.isArray(circuitsData) ? circuitsData : []);
 
-        const initial: { [key: number]: number } = {};
+        // ✅ initial selected role
+        const initialRoles: { [key: number]: number } = {};
         (usersData.users || []).forEach((u: User) => {
           const match = (rolesData.roles || []).find((r: Role) => r.role_name === u.role);
-          if (match) initial[u.user_id] = match.role_id;
+          if (match) initialRoles[u.user_id] = match.role_id;
         });
-        setSelectedRoles(initial);
+        setSelectedRoles(initialRoles);
+
+        // ✅ initial selected circuit (from backend circuit_id)
+        const initialCircuits: { [key: number]: number } = {};
+        (usersData.users || []).forEach((u: User) => {
+          if (u.circuit_id) initialCircuits[u.user_id] = u.circuit_id;
+        });
+        setSelectedCircuits(initialCircuits);
       } catch (err) {
         console.error(err);
-        Alert.alert('Error', 'Failed to load users/roles');
+        Alert.alert('Error', 'Failed to load users/roles/circuits');
       } finally {
         setLoading(false);
       }
@@ -78,10 +102,41 @@ export default function UserAccessScreen() {
     loadData();
   }, []);
 
+  const rolesById = useMemo(() => {
+    const map = new Map<number, Role>();
+    roles.forEach((r) => map.set(r.role_id, r));
+    return map;
+  }, [roles]);
+
+  // ✅ Find Branch Manager role id (no hardcode)
+  const branchManagerRoleId = useMemo(() => {
+    const bm = roles.find((r) => r.role_name.toLowerCase().includes('branch'));
+    return bm?.role_id ?? null;
+  }, [roles]);
+
+  const isBranchManagerSelected = (roleId: number) =>
+    branchManagerRoleId != null && roleId === branchManagerRoleId;
+
   const handleChangeRole = (userId: number, roleId: number) => {
     setSelectedRoles((prev) => ({
       ...prev,
       [userId]: roleId,
+    }));
+
+    // ✅ If changing away from Branch Manager, clear circuit selection
+    if (!isBranchManagerSelected(roleId)) {
+      setSelectedCircuits((prev) => {
+        const copy = { ...prev };
+        delete copy[userId];
+        return copy;
+      });
+    }
+  };
+
+  const handleChangeCircuit = (userId: number, circuitId: number) => {
+    setSelectedCircuits((prev) => ({
+      ...prev,
+      [userId]: circuitId,
     }));
   };
 
@@ -89,6 +144,14 @@ export default function UserAccessScreen() {
     const roleId = selectedRoles[user.user_id];
     if (!roleId) {
       Alert.alert('Select role', 'Please select a role first.');
+      return;
+    }
+
+    const bmSelected = isBranchManagerSelected(roleId);
+    const circuitId = bmSelected ? (selectedCircuits[user.user_id] || 0) : 0;
+
+    if (bmSelected && !circuitId) {
+      Alert.alert('Select circuit', 'Please select a circuit bungalow for Branch Manager.');
       return;
     }
 
@@ -102,7 +165,7 @@ export default function UserAccessScreen() {
           user_id: user.user_id,
           role_id: roleId,
           assigned_by: superAdminId,
-          circuit_id: null,
+          circuit_id: bmSelected ? circuitId : null,
         }),
       });
 
@@ -113,8 +176,13 @@ export default function UserAccessScreen() {
         return;
       }
 
+      // ✅ keep your existing role update behavior
       setUsers((prev) =>
-        prev.map((u) => (u.user_id === user.user_id ? { ...u, role: data.user.role } : u))
+        prev.map((u) =>
+          u.user_id === user.user_id
+            ? { ...u, role: data.user.role, circuit_id: bmSelected ? circuitId : null }
+            : u
+        )
       );
 
       Alert.alert('Success', 'Role updated successfully');
@@ -126,14 +194,18 @@ export default function UserAccessScreen() {
     }
   };
 
-  const rolesById = useMemo(() => {
-    const map = new Map<number, Role>();
-    roles.forEach((r) => map.set(r.role_id, r));
-    return map;
-  }, [roles]);
+  const filteredUsers = users.filter((u) => {
+    const fullName = `${u.first_name} ${u.last_name}`.toLowerCase();
+    return fullName.includes(searchText.trim().toLowerCase());
+  });
 
   const renderItem = ({ item }: { item: User }) => {
     const selectedRoleId = selectedRoles[item.user_id] ?? 0;
+    const showCircuit = isBranchManagerSelected(selectedRoleId);
+
+    const selectedCircuitId = selectedCircuits[item.user_id] ?? 0;
+    const circuitLabel =
+      circuits.find((c) => c.circuit_Id === selectedCircuitId)?.circuit_Name ?? 'Select circuit';
 
     return (
       <View style={styles.row}>
@@ -145,13 +217,23 @@ export default function UserAccessScreen() {
           <Text style={styles.roleText}>Current: {item.role}</Text>
         </View>
 
-        <View style={{ flex: 2 }}>
+        {/* ✅ Right side: stack role + circuit vertically so it fits nicely */}
+        <View style={{ flex: 2, gap: 8 }}>
           <RolePicker
             value={selectedRoleId}
             roles={roles}
             roleLabel={rolesById.get(selectedRoleId)?.role_name ?? 'Select role'}
             onChange={(val) => handleChangeRole(item.user_id, val)}
           />
+
+          {showCircuit && (
+            <CircuitPicker
+              value={selectedCircuitId}
+              circuits={circuits}
+              label={circuitLabel}
+              onChange={(val) => handleChangeCircuit(item.user_id, val)}
+            />
+          )}
         </View>
 
         <TouchableOpacity
@@ -179,11 +261,6 @@ export default function UserAccessScreen() {
       </LinearGradient>
     );
   }
-
-  const filteredUsers = users.filter((u) => {
-    const fullName = `${u.first_name} ${u.last_name}`.toLowerCase();
-    return fullName.includes(searchText.trim().toLowerCase());
-  });
 
   return (
     <LinearGradient colors={['#020038', '#05004A', '#020038']} style={styles.background}>
@@ -234,7 +311,6 @@ export default function UserAccessScreen() {
  * ✅ iOS FIX:
  * - Android: normal Picker
  * - iOS: show selected role as a button; open modal picker when pressed
- * (Logic stays the same; only UI changes to make role names visible.)
  */
 function RolePicker({
   value,
@@ -267,7 +343,6 @@ function RolePicker({
     );
   }
 
-  // iOS: Button + Modal wheel
   return (
     <>
       <TouchableOpacity
@@ -286,7 +361,11 @@ function RolePicker({
           <Pressable style={styles.modalSheet} onPress={() => {}}>
             <View style={styles.modalTop}>
               <Text style={styles.modalTitle}>Select role</Text>
-              <TouchableOpacity onPress={() => setOpen(false)} style={styles.modalDone} activeOpacity={0.9}>
+              <TouchableOpacity
+                onPress={() => setOpen(false)}
+                style={styles.modalDone}
+                activeOpacity={0.9}
+              >
                 <Text style={styles.modalDoneText}>Done</Text>
               </TouchableOpacity>
             </View>
@@ -296,6 +375,82 @@ function RolePicker({
                 <Picker.Item label="Select role" value={0} />
                 {roles.map((role) => (
                   <Picker.Item key={role.role_id} label={role.role_name} value={role.role_id} />
+                ))}
+              </Picker>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
+  );
+}
+
+/**
+ * ✅ Circuit picker (same UI pattern as RolePicker)
+ */
+function CircuitPicker({
+  value,
+  circuits,
+  label,
+  onChange,
+}: {
+  value: number;
+  circuits: Circuit[];
+  label: string;
+  onChange: (val: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (Platform.OS !== 'ios') {
+    return (
+      <View style={styles.pickerWrap}>
+        <Picker
+          selectedValue={value}
+          onValueChange={(val) => onChange(val)}
+          style={styles.pickerAndroid}
+          dropdownIconColor="#FFFFFF"
+        >
+          <Picker.Item label="Select circuit" value={0} />
+          {circuits.map((c) => (
+            <Picker.Item key={c.circuit_Id} label={c.circuit_Name} value={c.circuit_Id} />
+          ))}
+        </Picker>
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <TouchableOpacity
+        style={styles.iosRoleButton}
+        onPress={() => setOpen(true)}
+        activeOpacity={0.9}
+      >
+        <Text style={styles.iosRoleButtonText} numberOfLines={2}>
+          {label || 'Select circuit'}
+        </Text>
+        <Ionicons name="chevron-down" size={16} color="#FFFFFF" />
+      </TouchableOpacity>
+
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setOpen(false)}>
+          <Pressable style={styles.modalSheet} onPress={() => {}}>
+            <View style={styles.modalTop}>
+              <Text style={styles.modalTitle}>Select circuit</Text>
+              <TouchableOpacity
+                onPress={() => setOpen(false)}
+                style={styles.modalDone}
+                activeOpacity={0.9}
+              >
+                <Text style={styles.modalDoneText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalPickerWrap}>
+              <Picker selectedValue={value} onValueChange={(val) => onChange(val)} style={styles.pickerIOS}>
+                <Picker.Item label="Select circuit" value={0} />
+                {circuits.map((c) => (
+                  <Picker.Item key={c.circuit_Id} label={c.circuit_Name} value={c.circuit_Id} />
                 ))}
               </Picker>
             </View>
@@ -428,7 +583,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
-  /* ANDROID PICKER WRAP */
   pickerWrap: {
     borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.06)',
@@ -443,7 +597,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  /* iOS role button (shows FULL role name) */
   iosRoleButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -465,7 +618,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
 
-  /* iOS modal */
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',

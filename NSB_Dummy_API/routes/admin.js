@@ -12,17 +12,26 @@ router.get('/test', (req, res) => {
 router.get('/users', async (req, res) => {
   try {
     const pool = await getPool();
+
+    // ✅ Added: circuit_id from active User_role_map (latest active mapping)
     const result = await pool.request().query(`
       SELECT 
-        user_id,
-        first_name,
-        last_name,
-        email,
-        role,
-        is_active
-      FROM Users
-      WHERE is_active = 1
-      ORDER BY create_date DESC
+        u.user_id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.role,
+        u.is_active,
+        urm.circuit_id
+      FROM Users u
+      OUTER APPLY (
+        SELECT TOP 1 circuit_id
+        FROM User_role_map
+        WHERE user_id = u.user_id AND is_active = 1
+        ORDER BY assigned_date DESC, user_map_id DESC
+      ) urm
+      WHERE u.is_active = 1
+      ORDER BY u.create_date DESC
     `);
 
     return res.json({ users: result.recordset });
@@ -59,6 +68,18 @@ router.post('/assign-role', async (req, res) => {
     }
 
     const pool = await getPool();
+
+    // ✅ Added: check role name to enforce circuit_id only for Branch Manager
+    const roleRes = await pool.request()
+      .input('role_id', sql.Int, role_id)
+      .query(`SELECT role_name FROM Roles WHERE role_id = @role_id`);
+
+    const roleName = roleRes.recordset[0]?.role_name || '';
+    const isBranchManager = roleName.toLowerCase().includes('branch');
+
+    if (isBranchManager && !circuit_id) {
+      return res.status(400).json({ message: 'circuit_id is required for Branch Manager' });
+    }
 
     // 1) Deactivate old mappings for this user
     await pool.request()
