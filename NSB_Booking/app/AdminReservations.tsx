@@ -13,21 +13,25 @@ import {
   RefreshControl,
   InteractionManager,
   Pressable,
-  ScrollView, // ✅ FIXED
+  ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import { bookingsApi, paymentsApi } from "../src/services/api"; // ✅ FIXED
-import { API_URL } from "../src/services/config"; // ✅ FIXED
-
-
-
+import { bookingsApi, paymentsApi } from "../src/services/api";
+import { API_URL } from "../src/services/config";
 
 const TABS = ["Pending", "Approved", "Rejected", "All"];
 
 const NAVY = "#020038";
 const YELLOW = "#FFB600";
+
+// ✅ Keep this BLUE for Payment Uploaded
+const BLUE = "#4DA3FF";
+
+// ✅ NEW: Only for "Payment NOT Uploaded" pill (does NOT affect buttons/tabs)
+const PAYMENT_NOT_UPLOADED = "#ed9bab";
+
 const MUTED = "rgba(255,255,255,0.70)";
 const MUTED2 = "rgba(255,255,255,0.45)";
 const CARD_BG = "rgba(10,10,26,0.88)";
@@ -67,10 +71,9 @@ export default function AdminReservations() {
   const [rejectVisible, setRejectVisible] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
 
-  // this will hold either "/uploads/payments/xxx.png" OR full http url
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
 
-  const admin_id = 1; // TODO: replace with real admin user_id
+  const admin_id = 1;
 
   const loadBookings = async () => {
     try {
@@ -125,7 +128,6 @@ export default function AdminReservations() {
     if (!paymentUrl) return null;
     if (paymentUrl.startsWith("http")) return paymentUrl;
     return `${API_URL}${paymentUrl}`;
-
   }, [paymentUrl]);
 
   const approveBooking = async () => {
@@ -162,6 +164,8 @@ export default function AdminReservations() {
   };
 
   const renderItem = ({ item }: any) => {
+    const hasPayment = item.has_payment_proof === 1 || !!item.payment_slip_path;
+
     const statusStyle =
       item.status === "Pending"
         ? styles.statusPending
@@ -196,7 +200,11 @@ export default function AdminReservations() {
           </View>
 
           <View style={[styles.statusPill, statusStyle]}>
-            <Ionicons name={statusIcon as any} size={14} color={item.status === "Pending" ? NAVY : "#fff"} />
+            <Ionicons
+              name={statusIcon as any}
+              size={14}
+              color={item.status === "Pending" ? NAVY : "#fff"}
+            />
             <Text
               style={[
                 styles.statusText,
@@ -207,6 +215,28 @@ export default function AdminReservations() {
             </Text>
           </View>
         </View>
+
+        {/* ✅ PAYMENT STATUS (ONLY FOR PENDING) */}
+        {item.status === "Pending" && (
+          <View
+            style={[
+              styles.paymentPill,
+              {
+                // ✅ Uploaded stays BLUE, Not Uploaded uses NEW color (not YELLOW)
+                backgroundColor: hasPayment ? BLUE : PAYMENT_NOT_UPLOADED,
+              },
+            ]}
+          >
+            <Ionicons
+              name={hasPayment ? "checkmark-circle-outline" : "alert-circle-outline"}
+              size={14}
+              color={NAVY}
+            />
+            <Text style={styles.paymentText}>
+              {hasPayment ? "Payment Uploaded" : "Payment NOT Uploaded"}
+            </Text>
+          </View>
+        )}
 
         <View style={styles.rowLine}>
           <Ionicons name="location-outline" size={16} color={YELLOW} />
@@ -240,18 +270,15 @@ export default function AdminReservations() {
 
   return (
     <LinearGradient colors={["#020038", "#05004A", "#020038"]} style={styles.background}>
-      {/* Back button (same style) */}
       <TouchableOpacity style={styles.headerBack} onPress={() => router.back()} activeOpacity={0.9}>
         <Ionicons name="chevron-back" size={26} color="#fff" />
       </TouchableOpacity>
 
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>All Reservations</Text>
         <Text style={styles.subtitle}>Review pending payments & booking requests</Text>
       </View>
 
-      {/* Tabs */}
       <View style={styles.tabsWrap}>
         <View style={styles.tabsCard}>
           {TABS.map((t) => {
@@ -270,7 +297,6 @@ export default function AdminReservations() {
         </View>
       </View>
 
-      {/* List */}
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={YELLOW} size="large" />
@@ -285,9 +311,7 @@ export default function AdminReservations() {
           renderItem={renderItem}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={YELLOW} />}
-          ListEmptyComponent={
-            <Text style={styles.emptyText}>No reservations found</Text>
-          }
+          ListEmptyComponent={<Text style={styles.emptyText}>No reservations found</Text>}
         />
       )}
 
@@ -372,7 +396,6 @@ export default function AdminReservations() {
             <View style={{ height: 24 }} />
           </ScrollView>
 
-          {/* Reject modal */}
           <Modal visible={rejectVisible} transparent animationType="fade">
             <View style={styles.rejectOverlay}>
               <View style={styles.rejectCard}>
@@ -560,6 +583,22 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   statusText: { fontSize: 11, fontWeight: "900" },
+
+  paymentPill: {
+    marginTop: 8,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  paymentText: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: NAVY,
+  },
 
   statusPending: { backgroundColor: YELLOW },
   statusApproved: { backgroundColor: "rgba(92,255,176,0.30)", borderWidth: 1, borderColor: "rgba(92,255,176,0.35)" },

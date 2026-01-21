@@ -733,7 +733,9 @@ router.get('/', async (req, res) => {
     const status = String(req.query.status || 'All');
     const pool = await getPool();
 
-    const where = status.toLowerCase() === 'all' ? '' : 'WHERE b.status = @status';
+    const where = status.toLowerCase() === 'all'
+      ? ''
+      : 'WHERE b.status = @status';
 
     const result = await pool
       .request()
@@ -769,7 +771,13 @@ router.get('/', async (req, res) => {
 
           p.amount AS payment_amount,
           p.payment_slip_path,
-          p.payment_slip_uploaded_date
+          p.payment_slip_uploaded_date,
+
+          -- ✅ NEW FLAG (THIS IS THE KEY)
+          CASE
+            WHEN p.payment_slip_path IS NOT NULL THEN 1
+            ELSE 0
+          END AS has_payment_proof
 
         FROM Bookings b
         LEFT JOIN Users u ON u.user_id = b.user_id
@@ -796,6 +804,7 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ message: 'Server error', error: err.message });
   }
 });
+
 
 // =====================================================
 // ✅ ADMIN: APPROVE booking
