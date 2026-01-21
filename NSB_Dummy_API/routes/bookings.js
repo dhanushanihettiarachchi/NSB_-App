@@ -42,6 +42,89 @@ function todayYYYYMMDD() {
 }
 
 // =====================================================
+// ✅ NEW: Manager Notifications
+// GET /bookings/manager-notifications?userId=123
+// Returns APPROVED bookings for manager's circuit
+// =====================================================
+router.get('/manager-notifications', async (req, res) => {
+  try {
+    const userId = Number(req.query.userId);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ message: 'Invalid userId' });
+    }
+
+    const pool = await getPool();
+
+    // 1) Get manager circuit_id from latest active role mapping
+    const circuitRes = await pool
+      .request()
+      .input('user_id', sql.Int, userId)
+      .query(`
+        SELECT TOP 1 circuit_id
+        FROM User_role_map
+        WHERE user_id = @user_id AND is_active = 1
+        ORDER BY assigned_date DESC, user_map_id DESC;
+      `);
+
+    const circuit_id = circuitRes.recordset[0]?.circuit_id;
+
+    if (!circuit_id) {
+      return res.json({ bookings: [] }); // no circuit assigned -> no notifications
+    }
+
+    // 2) Get approved bookings for that circuit
+    const result = await pool
+      .request()
+      .input('circuit_id', sql.Int, circuit_id)
+      .query(`
+        SELECT
+          b.booking_id,
+          b.user_id,
+
+          -- user name (fallback safe)
+          COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(u.first_name, ' ', u.last_name))), ''), u.email, CONCAT('User ', b.user_id)) AS user_name,
+
+          b.room_id,
+          r.room_Name,
+          r.circuit_Id,
+
+          c.circuit_Name,
+          c.city,
+          c.street,
+
+          b.booking_date,
+          b.check_in_date,
+          b.check_out_date,
+          b.booking_time,
+
+          b.guest_count,
+          b.need_room_count,
+          b.purpose,
+          b.status,
+
+          b.created_date,
+          b.updated_date,
+          b.approved_date
+
+        FROM Bookings b
+        LEFT JOIN Users u ON u.user_id = b.user_id
+        LEFT JOIN CircuitRooms r ON r.room_Id = b.room_id
+        LEFT JOIN Circuits c ON c.circuit_Id = r.circuit_Id
+
+        WHERE r.circuit_Id = @circuit_id
+          AND b.status = 'Approved'
+        ORDER BY ISNULL(b.approved_date, b.updated_date) DESC, b.booking_id DESC;
+      `);
+
+    res.set('Cache-Control', 'no-store');
+    return res.json({ bookings: result.recordset });
+  } catch (err) {
+    console.error('manager-notifications error >>>', err);
+    return res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// =====================================================
 // ✅ GET /bookings/unavailable?circuitId=123
 // (kept as-is, returns approved bookings ranges for circuit)
 // =====================================================
@@ -264,8 +347,7 @@ router.post('/', async (req, res) => {
       }
 
       // -------------------------------------------------------
-      // ✅ 2) IMPORTANT CHANGE:
-      // Enforce availability PER ROOM TYPE (Approved bookings only)
+      // ✅ 2) Enforce availability PER ROOM TYPE (Approved bookings only)
       // -------------------------------------------------------
       for (const it of safeItems) {
         const availabilityCheck = await new sql.Request(tx)
@@ -354,8 +436,7 @@ router.post('/', async (req, res) => {
       }
 
       // -------------------------------------------------------
-      // ✅ 3) Validate room capacity + active + total room_count (your existing logic)
-      // (kept same, but still useful)
+      // ✅ 3) Validate room capacity + active + total room_count (kept same)
       // -------------------------------------------------------
       for (const it of safeItems) {
         const roomCheck = await new sql.Request(tx)
