@@ -1,3 +1,5 @@
+// NSB Booking App - Home Screen
+// D:\NSB_App\NSB_Booking\app\(tabs)\index.tsx
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 

@@ -1,4 +1,5 @@
 // NSB_Booking/app/BookingQR.tsx
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";

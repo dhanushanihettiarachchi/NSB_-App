@@ -1,4 +1,5 @@
 // NSB_Booking/app/ExistingCircuits.tsx
+// NSB Booking App - Existing Circuits Screen
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,

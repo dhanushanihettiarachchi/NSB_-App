@@ -1,3 +1,5 @@
+// NSB Booking App - Splash Screen
+// D:\NSB_App\NSB_Booking\app\Splash.tsx
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Image, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';

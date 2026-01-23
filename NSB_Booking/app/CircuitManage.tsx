@@ -1,4 +1,5 @@
 // NSB_Booking/app/CircuitManage.tsx
+// NSB Booking App - Manage Circuits Screen
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,

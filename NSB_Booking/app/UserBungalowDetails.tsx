@@ -1,4 +1,5 @@
 // app/UserBungalowDetails.tsx
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,

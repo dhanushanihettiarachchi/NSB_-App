@@ -1,4 +1,5 @@
 // app/_layout.tsx  (ROOT layout)
+
 import { Stack } from 'expo-router';
 import { BookingDraftProvider } from './context/BookingDraftContext';
 

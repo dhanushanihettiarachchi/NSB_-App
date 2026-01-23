@@ -1,3 +1,5 @@
+// NSB Booking App - Forgot Password Screen
+// D:\NSB_App\NSB_Booking\app\ForgotPassword.tsx
 import React, { useState } from 'react';
 import {
   View,

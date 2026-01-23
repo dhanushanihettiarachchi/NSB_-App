@@ -1,4 +1,5 @@
 // NSB_Booking/app/EditCircuit.tsx
+// Screen for editing a circuit's details, rooms, and images.
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,

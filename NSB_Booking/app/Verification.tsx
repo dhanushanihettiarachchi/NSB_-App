@@ -1,3 +1,5 @@
+// NSB Booking App - Verification Screen
+// D:\NSB_App\NSB_Booking\app\Verification.tsx
 import React, { useState } from 'react';
 import {
   View,

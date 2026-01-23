@@ -1,3 +1,6 @@
+// NSB Booking App - New Password Screen
+// D:\NSB_App\NSB_Booking\app\NewPassword.tsx
+
 import React, { useState } from 'react';
 import {
   View,

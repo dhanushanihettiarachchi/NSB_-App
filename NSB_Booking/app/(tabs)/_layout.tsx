@@ -1,4 +1,5 @@
 //D:\NSB_App\NSB_Booking\app\(tabs)\_layout.tsx
+// NSB Booking App - Tab Layout
 import { Tabs } from 'expo-router';
 import React from 'react';
 

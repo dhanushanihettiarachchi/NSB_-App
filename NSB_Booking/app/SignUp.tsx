@@ -1,3 +1,4 @@
+// NSB Booking App - Sign Up Screen
 // NSB_Booking/app/SignUp.tsx
 import React, { useState } from 'react';
 import {

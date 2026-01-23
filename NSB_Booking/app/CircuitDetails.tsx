@@ -1,4 +1,5 @@
 // NSB_Booking/app/CircuitDetails.tsx
+// NSB Booking App - Circuit Details Screen
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
