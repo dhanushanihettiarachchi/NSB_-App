@@ -1,6 +1,7 @@
-// NSB Booking App - Sign Up Screen
+// NSB Booking App - Sign Up Screen (UPDATED: EPF field moved after Last Name)
 // NSB_Booking/app/SignUp.tsx
-import React, { useState } from 'react';
+
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -24,9 +25,13 @@ const YELLOW = '#FFB600';
 const CARD = '#0A0A1A';
 const MUTED = 'rgba(255,255,255,0.7)';
 
+// ✅ Change this to your real NSB domain
+const NSB_DOMAIN = '@nsb.lk';
+
 type FocusField =
   | 'firstName'
   | 'lastName'
+  | 'epf'
   | 'email'
   | 'phone'
   | 'password'
@@ -38,6 +43,7 @@ type FocusField =
 export default function SignUpScreen() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [epf, setEpf] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -49,13 +55,43 @@ export default function SignUpScreen() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [focusField, setFocusField] = useState<FocusField>(null);
 
-  /* ================= HANDLER (UNCHANGED) ================= */
+  const emailLower = useMemo(() => email.trim().toLowerCase(), [email]);
+
+  const isValidEmail = useMemo(() => {
+    return (
+      emailLower.includes('@') &&
+      emailLower.includes('.') &&
+      emailLower.endsWith(NSB_DOMAIN)
+    );
+  }, [emailLower]);
+
+  const isValidEpf = useMemo(() => {
+    return /^[0-9]{3,20}$/.test(epf.trim());
+  }, [epf]);
+
+  /* ================= HANDLER ================= */
 
   const handleSignUp = async () => {
     setError('');
 
-    if (!firstName || !lastName || !email || !password || !confirm) {
+    const f = firstName.trim();
+    const l = lastName.trim();
+    const epfNumber = epf.trim();
+    const e = email.trim().toLowerCase();
+    const p = phone.trim();
+
+    if (!f || !l || !epfNumber || !e || !password || !confirm) {
       setError('Please fill all fields.');
+      return;
+    }
+
+    if (!e.endsWith(NSB_DOMAIN)) {
+      setError(`Please use your NSB email (${NSB_DOMAIN}).`);
+      return;
+    }
+
+    if (!isValidEpf) {
+      setError('Please enter a valid EPF number.');
       return;
     }
 
@@ -70,10 +106,11 @@ export default function SignUpScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          first_name: firstName,
-          last_name: lastName,
-          email,
-          phone,
+          first_name: f,
+          last_name: l,
+          epf_number: epfNumber,
+          email: e,
+          phone: p || null,
           password,
         }),
       });
@@ -81,7 +118,7 @@ export default function SignUpScreen() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.message || 'Sign up failed.');
+        setError(data?.message || 'Sign up failed.');
         return;
       }
 
@@ -97,10 +134,7 @@ export default function SignUpScreen() {
   /* ================= UI ================= */
 
   return (
-    <LinearGradient
-      colors={['#020038', '#05004A', '#020038']}
-      style={styles.background}
-    >
+    <LinearGradient colors={['#020038', '#05004A', '#020038']} style={styles.background}>
       <KeyboardAvoidingView
         style={styles.screen}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -148,13 +182,36 @@ export default function SignUpScreen() {
             />
           </View>
 
+          {/* EPF Number (moved here) */}
+          <Text style={[styles.label, { marginTop: 12 }]}>EPF Number</Text>
+          <View style={[styles.inputWrap, focusField === 'epf' && styles.inputFocus]}>
+            <Ionicons name="id-card-outline" size={18} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              placeholder="EPF Number"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              value={epf}
+              onChangeText={setEpf}
+              keyboardType="number-pad"
+              onFocus={() => setFocusField('epf')}
+              onBlur={() => setFocusField(null)}
+            />
+            {!!epf.trim() && (
+              <Ionicons
+                name={isValidEpf ? 'checkmark-circle' : 'alert-circle'}
+                size={18}
+                color={isValidEpf ? '#4ADE80' : '#FB7185'}
+              />
+            )}
+          </View>
+
           {/* Email */}
           <Text style={[styles.label, { marginTop: 12 }]}>Email</Text>
           <View style={[styles.inputWrap, focusField === 'email' && styles.inputFocus]}>
             <Ionicons name="mail-outline" size={18} color={MUTED} />
             <TextInput
               style={styles.input}
-              placeholder="name@example.com"
+              placeholder={`name${NSB_DOMAIN}`}
               placeholderTextColor="rgba(255,255,255,0.4)"
               value={email}
               onChangeText={setEmail}
@@ -163,6 +220,13 @@ export default function SignUpScreen() {
               onFocus={() => setFocusField('email')}
               onBlur={() => setFocusField(null)}
             />
+            {!!email.trim() && (
+              <Ionicons
+                name={isValidEmail ? 'checkmark-circle' : 'alert-circle'}
+                size={18}
+                color={isValidEmail ? '#4ADE80' : '#FB7185'}
+              />
+            )}
           </View>
 
           {/* Phone */}
@@ -195,7 +259,7 @@ export default function SignUpScreen() {
               onFocus={() => setFocusField('password')}
               onBlur={() => setFocusField(null)}
             />
-            <Pressable onPress={() => setShowPassword(!showPassword)}>
+            <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={10}>
               <Ionicons
                 name={showPassword ? 'eye-off-outline' : 'eye-outline'}
                 size={18}
@@ -218,7 +282,7 @@ export default function SignUpScreen() {
               onFocus={() => setFocusField('confirm')}
               onBlur={() => setFocusField(null)}
             />
-            <Pressable onPress={() => setShowConfirm(!showConfirm)}>
+            <Pressable onPress={() => setShowConfirm(!showConfirm)} hitSlop={10}>
               <Ionicons
                 name={showConfirm ? 'eye-off-outline' : 'eye-outline'}
                 size={18}
@@ -265,7 +329,7 @@ const styles = StyleSheet.create({
     paddingTop: 60,
   },
 
- headerBack: {
+  headerBack: {
     position: 'absolute',
     top: 30,
     left: 16,

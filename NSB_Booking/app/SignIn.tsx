@@ -1,5 +1,6 @@
-// NSB Booking App - Sign In Screen
-// D:\NSB_App\NSB_Booking\app\SignIn.tsx
+// NSB Booking App - Sign In Screen (UPDATED: checks NSB email domain + saves session to AsyncStorage)
+// NSB_Booking/app/SignIn.tsx
+
 import React, { useMemo, useState } from 'react';
 import {
   View,
@@ -16,6 +17,7 @@ import {
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../src/services/config';
 
 /* ================= CONSTANTS ================= */
@@ -24,6 +26,9 @@ const NAVY = '#020038';
 const YELLOW = '#FFB600';
 const CARD = '#0A0A1A';
 const MUTED = 'rgba(255,255,255,0.7)';
+
+// ✅ Change this to your real NSB domain
+const NSB_DOMAIN = '@nsb.lk';
 
 /* ================= TYPES ================= */
 
@@ -39,17 +44,32 @@ export default function SignInScreen() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [focusField, setFocusField] = useState<FocusField>(null);
 
+  const emailLower = useMemo(() => email.trim().toLowerCase(), [email]);
+
   const isValidEmail = useMemo(() => {
-    return email.includes('@') && email.includes('.');
-  }, [email]);
+    return emailLower.includes('@') && emailLower.includes('.');
+  }, [emailLower]);
+
+  const isNsbEmail = useMemo(() => {
+    return !!emailLower && emailLower.endsWith(NSB_DOMAIN);
+  }, [emailLower]);
 
   /* ================= HANDLER ================= */
 
   const handleSignIn = async () => {
     setError('');
 
-    if (!email.trim() || !password.trim()) {
+    const e = email.trim().toLowerCase();
+    const pw = password.trim();
+
+    if (!e || !pw) {
       setError('Please enter your email and password.');
+      return;
+    }
+
+    // ✅ NSB domain check (same as signup)
+    if (!e.endsWith(NSB_DOMAIN)) {
+      setError(`Only NSB emails can sign in (${NSB_DOMAIN}).`);
       return;
     }
 
@@ -59,37 +79,47 @@ export default function SignInScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: email.trim(),
-          password: password.trim(),
+          email: e,
+          password: pw,
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setError(data?.message || 'Invalid email or password.');
         return;
       }
 
-      const role = data?.user?.role;
+      const role = data?.user?.role ?? '';
       const userId = data?.user?.user_id;
 
       const firstName = data?.user?.first_name ?? '';
       const lastName = data?.user?.last_name ?? '';
-      const userEmail = data?.user?.email ?? email.trim();
+      const userEmail = data?.user?.email ?? e;
 
       if (!userId) {
         setError('Login succeeded but userId is missing.');
         return;
       }
 
-      // ✅ PASS USER DETAILS TO NEXT SCREEN (so dashboard shows correct user info)
+      // ✅ IMPORTANT: persist login (so EditCircuit & AdminDashboard always find user)
+      await AsyncStorage.multiSet([
+        ['user_id', String(userId)],
+        ['userId', String(userId)], // keep both keys (your other screens search multiple keys)
+        ['email', String(userEmail)],
+        ['first_name', String(firstName)],
+        ['last_name', String(lastName)],
+        ['role', String(role)],
+      ]);
+
+      // ✅ also keep params navigation working (no change for your dashboards)
       const commonParams = {
         userId: String(userId),
         firstName,
         lastName,
         email: userEmail,
-        role: role ?? '',
+        role,
       };
 
       if (role === 'SuperAdmin') {
@@ -135,7 +165,7 @@ export default function SignInScreen() {
             <Ionicons name="mail-outline" size={18} color={MUTED} />
             <TextInput
               style={styles.input}
-              placeholder="name@example.com"
+              placeholder={`name${NSB_DOMAIN}`}
               placeholderTextColor="rgba(255,255,255,0.4)"
               value={email}
               onChangeText={setEmail}
@@ -144,11 +174,11 @@ export default function SignInScreen() {
               onFocus={() => setFocusField('email')}
               onBlur={() => setFocusField(null)}
             />
-            {!!email && (
+            {!!email.trim() && (
               <Ionicons
-                name={isValidEmail ? 'checkmark-circle' : 'alert-circle'}
+                name={isValidEmail && isNsbEmail ? 'checkmark-circle' : 'alert-circle'}
                 size={18}
-                color={isValidEmail ? '#4ADE80' : '#FB7185'}
+                color={isValidEmail && isNsbEmail ? '#4ADE80' : '#FB7185'}
               />
             )}
           </View>
@@ -190,7 +220,11 @@ export default function SignInScreen() {
             onPress={handleSignIn}
             disabled={loading}
           >
-            {loading ? <ActivityIndicator color={NAVY} /> : <Text style={styles.buttonText}>Sign In</Text>}
+            {loading ? (
+              <ActivityIndicator color={NAVY} />
+            ) : (
+              <Text style={styles.buttonText}>Sign In</Text>
+            )}
           </TouchableOpacity>
 
           {/* Footer */}

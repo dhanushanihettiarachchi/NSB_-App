@@ -1,5 +1,5 @@
-// app/AdminDashboard.tsx//
-import React, { useMemo, useRef, useState } from 'react';
+// app/AdminDashboard.tsx
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const NAVY = '#020038';
 const YELLOW = '#FFB600';
@@ -26,12 +27,54 @@ const DRAWER_W = Math.min(320, SCREEN_W * 0.82);
 export default function AdminDashboard() {
   const params = useLocalSearchParams();
 
-  // ✅ Super Admin details (similar to UserDashboard)
-  const adminId = String(params.adminId ?? params.userId ?? '');
-  const firstName = String(params.firstName ?? '');
-  const lastName = String(params.lastName ?? '');
-  const email = String(params.email ?? '');
-  const role = String(params.role ?? 'SuperAdmin');
+  // ✅ local state (can be filled from params OR AsyncStorage)
+  const [adminIdState, setAdminIdState] = useState('');
+  const [firstNameState, setFirstNameState] = useState('');
+  const [lastNameState, setLastNameState] = useState('');
+  const [emailState, setEmailState] = useState('');
+  const [roleState, setRoleState] = useState('SuperAdmin');
+
+  // ✅ read params first (when available)
+  useEffect(() => {
+    const pAdminId = String(params.adminId ?? params.userId ?? '');
+    const pFirst = String(params.firstName ?? '');
+    const pLast = String(params.lastName ?? '');
+    const pEmail = String(params.email ?? '');
+    const pRole = String(params.role ?? 'SuperAdmin');
+
+    // if params have values, use them
+    if (pAdminId || pEmail || pFirst || pLast) {
+      setAdminIdState(pAdminId);
+      setFirstNameState(pFirst);
+      setLastNameState(pLast);
+      setEmailState(pEmail);
+      setRoleState(pRole);
+      return;
+    }
+
+    // otherwise load from AsyncStorage (when navigated without params)
+    (async () => {
+      const [uid, em, fn, ln, rl] = await Promise.all([
+        AsyncStorage.getItem('user_id'),
+        AsyncStorage.getItem('email'),
+        AsyncStorage.getItem('first_name'),
+        AsyncStorage.getItem('last_name'),
+        AsyncStorage.getItem('role'),
+      ]);
+
+      setAdminIdState(uid ? String(uid) : '');
+      setEmailState(em ? String(em) : '');
+      setFirstNameState(fn ? String(fn) : '');
+      setLastNameState(ln ? String(ln) : '');
+      setRoleState(rl ? String(rl) : 'SuperAdmin');
+    })();
+  }, [params.adminId, params.userId, params.firstName, params.lastName, params.email, params.role]);
+
+  const adminId = adminIdState;
+  const firstName = firstNameState;
+  const lastName = lastNameState;
+  const email = emailState;
+  const role = roleState;
 
   const fullName = useMemo(() => {
     const n = `${firstName} ${lastName}`.trim();
@@ -59,36 +102,33 @@ export default function AdminDashboard() {
     }).start(() => setDrawerOpen(false));
   };
 
-  const logout = () => router.replace('/SignIn');
+  const logout = async () => {
+    // optional: clear stored login so EditCircuit doesn't use old ID after logout
+    await AsyncStorage.multiRemove(['user_id', 'email', 'first_name', 'last_name', 'role']);
+    router.replace('/SignIn');
+  };
 
-  // ✅ Same routes you already use
   const goToUserAccess = () => router.push('/UserAccess');
   const goToCircuits = () => router.push('/CircuitManage');
   const goToReservations = () => router.push('/AdminReservations');
 
-  // Hover/press highlight states (icon background)
   const [hoveredIcon, setHoveredIcon] = useState<'users' | 'circuits' | 'reservations' | null>(null);
 
-  const isIconActive = (
-    key: 'users' | 'circuits' | 'reservations',
-    pressed: boolean
-  ) => pressed || hoveredIcon === key;
+  const isIconActive = (key: 'users' | 'circuits' | 'reservations', pressed: boolean) =>
+    pressed || hoveredIcon === key;
 
   return (
     <LinearGradient colors={['#020038', '#05004A', '#020038']} style={styles.background}>
       <SafeAreaView style={styles.safe}>
         <View style={styles.container}>
-          {/* Back Icon (top-left) */}
           <TouchableOpacity style={styles.headerBack} onPress={logout} activeOpacity={0.9}>
             <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
           </TouchableOpacity>
 
-          {/* Profile Icon (top-right) */}
           <TouchableOpacity style={styles.headerProfile} onPress={openDrawer} activeOpacity={0.9}>
             <Ionicons name="person-circle-outline" size={30} color="#FFFFFF" />
           </TouchableOpacity>
 
-          {/* Main card */}
           <View style={styles.mainWrap}>
             <View style={styles.card}>
               <Text style={styles.title}>Welcome Back</Text>
@@ -97,7 +137,6 @@ export default function AdminDashboard() {
 
               <View style={styles.divider} />
 
-              {/* Manage User Access */}
               <Pressable
                 style={styles.actionRow}
                 onPress={goToUserAccess}
@@ -125,7 +164,6 @@ export default function AdminDashboard() {
                 }}
               </Pressable>
 
-              {/* Manage Circuit Bungalows */}
               <Pressable
                 style={styles.actionRow}
                 onPress={goToCircuits}
@@ -153,7 +191,6 @@ export default function AdminDashboard() {
                 }}
               </Pressable>
 
-              {/* See All Reservations */}
               <Pressable
                 style={styles.actionRow}
                 onPress={goToReservations}
@@ -165,11 +202,7 @@ export default function AdminDashboard() {
                   return (
                     <>
                       <View style={active ? styles.iconYellow : styles.iconOutline}>
-                        <Ionicons
-                          name="calendar-outline"
-                          size={20}
-                          color={active ? NAVY : YELLOW}
-                        />
+                        <Ionicons name="calendar-outline" size={20} color={active ? NAVY : YELLOW} />
                       </View>
 
                       <View style={{ flex: 1 }}>
@@ -187,7 +220,6 @@ export default function AdminDashboard() {
             </View>
           </View>
 
-          {/* Bottom nav (Left -> Right): User Access, Circuit Bungalows, Reservations */}
           <View style={styles.bottomBar}>
             <TouchableOpacity style={styles.navBtn} onPress={goToUserAccess} activeOpacity={0.9}>
               <View style={styles.navIconWrap}>
@@ -211,7 +243,6 @@ export default function AdminDashboard() {
             </TouchableOpacity>
           </View>
 
-          {/* Drawer */}
           <Modal visible={drawerOpen} transparent animationType="none" onRequestClose={closeDrawer}>
             <Pressable style={drawerStyles.overlay} onPress={closeDrawer}>
               <Animated.View
@@ -220,11 +251,7 @@ export default function AdminDashboard() {
               >
                 <View style={drawerStyles.top}>
                   <Text style={drawerStyles.title}>Profile</Text>
-                  <TouchableOpacity
-                    onPress={closeDrawer}
-                    style={drawerStyles.closeBtn}
-                    activeOpacity={0.9}
-                  >
+                  <TouchableOpacity onPress={closeDrawer} style={drawerStyles.closeBtn} activeOpacity={0.9}>
                     <Ionicons name="close" size={20} color="#FFFFFF" />
                   </TouchableOpacity>
                 </View>
@@ -282,13 +309,11 @@ function InfoRow({
   );
 }
 
-/* ================= STYLES ================= */
-
+// ✅ styles unchanged below...
 const styles = StyleSheet.create({
   background: { flex: 1 },
   safe: { flex: 1 },
   container: { flex: 1 },
-
   headerBack: {
     position: 'absolute',
     top: 30,
@@ -300,7 +325,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
   },
-
   headerProfile: {
     position: 'absolute',
     top: 30,
@@ -315,13 +339,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  mainWrap: {
-    flex: 1,
-    paddingHorizontal: '7%',
-    paddingTop: 90,
-  },
-
+  mainWrap: { flex: 1, paddingHorizontal: '7%', paddingTop: 90 },
   card: {
     backgroundColor: 'rgba(10,10,26,0.88)',
     borderRadius: 22,
@@ -334,34 +352,10 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     elevation: 8,
   },
-
-  title: {
-    color: '#fff',
-    fontSize: 26,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  name: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '900',
-    textAlign: 'center',
-    marginTop: 10,
-  },
-  subtitle: {
-    color: MUTED,
-    fontSize: 12,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    marginVertical: 16,
-  },
-
+  title: { color: '#fff', fontSize: 26, fontWeight: '900', textAlign: 'center' },
+  name: { color: '#fff', fontSize: 18, fontWeight: '900', textAlign: 'center', marginTop: 10 },
+  subtitle: { color: MUTED, fontSize: 12, fontWeight: '700', textAlign: 'center', marginTop: 8 },
+  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.10)', marginVertical: 16 },
   actionRow: {
     borderRadius: 18,
     padding: 14,
@@ -373,15 +367,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.10)',
     marginBottom: 12,
   },
-
-  iconYellow: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
-    backgroundColor: YELLOW,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  iconYellow: { width: 44, height: 44, borderRadius: 16, backgroundColor: YELLOW, alignItems: 'center', justifyContent: 'center' },
   iconOutline: {
     width: 44,
     height: 44,
@@ -392,15 +378,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   actionTitle: { color: '#fff', fontSize: 14, fontWeight: '900' },
-  actionSub: {
-    color: 'rgba(255,255,255,0.70)',
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-
+  actionSub: { color: 'rgba(255,255,255,0.70)', fontSize: 12, fontWeight: '700', marginTop: 4 },
   chevPill: {
     width: 34,
     height: 34,
@@ -411,7 +390,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   bottomBar: {
     position: 'absolute',
     left: 14,
@@ -427,21 +405,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     paddingHorizontal: 10,
   },
-
-  navBtn: {
-    width: 100,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  navBtnCenter: {
-    width: 100,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: -24,
-  },
-
+  navBtn: { width: 100, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  navBtnCenter: { width: 100, alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: -24 },
   navIconWrap: {
     width: 44,
     height: 44,
@@ -452,35 +417,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  centerFab: {
-    width: 58,
-    height: 58,
-    borderRadius: 22,
-    backgroundColor: YELLOW,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 5,
-  },
-
-  navLabel: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: 'rgba(255,255,255,0.80)',
-    textAlign: 'center',
-  },
+  centerFab: { width: 58, height: 58, borderRadius: 22, backgroundColor: YELLOW, alignItems: 'center', justifyContent: 'center', elevation: 5 },
+  navLabel: { fontSize: 11, fontWeight: '900', color: 'rgba(255,255,255,0.80)', textAlign: 'center' },
 });
 
-/* ================= DRAWER STYLES ================= */
-
 const drawerStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', flexDirection: 'row', justifyContent: 'flex-end' },
   drawer: {
     width: DRAWER_W,
     height: '100%',
@@ -492,15 +434,8 @@ const drawerStyles = StyleSheet.create({
     paddingTop: 18,
     paddingHorizontal: 14,
   },
-
-  top: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
+  top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { fontSize: 16, fontWeight: '900', color: '#FFFFFF' },
-
   closeBtn: {
     width: 36,
     height: 36,
@@ -511,36 +446,13 @@ const drawerStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  profileHead: {
-    marginTop: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-
-  avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    backgroundColor: YELLOW,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
+  profileHead: { marginTop: 16, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatar: { width: 46, height: 46, borderRadius: 16, backgroundColor: YELLOW, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: NAVY, fontWeight: '900', fontSize: 18 },
   name: { fontSize: 15, fontWeight: '900', color: '#FFFFFF' },
   sub: { marginTop: 2, fontSize: 12, fontWeight: '800', color: MUTED },
-
   divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.10)', marginVertical: 14 },
-
-  infoRow: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-
+  infoRow: { flexDirection: 'row', gap: 10, alignItems: 'center', paddingVertical: 10 },
   infoIcon: {
     width: 36,
     height: 36,
@@ -551,10 +463,8 @@ const drawerStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   infoLabel: { color: MUTED2, fontWeight: '800', fontSize: 12 },
   infoValue: { color: '#FFFFFF', fontWeight: '900', fontSize: 13, marginTop: 2 },
-
   logoutBtn: {
     marginTop: 14,
     backgroundColor: YELLOW,

@@ -231,30 +231,32 @@ export default function CircuitDetails() {
           )}
         </View>
 
-        {/* Rooms */}
-        <Text style={[styles.sectionTitle, { marginTop: 18 }]}>Rooms</Text>
+        {/* Rooms (CHANGED: now inside a main card + title inside card) */}
+        <View style={[styles.card, { marginTop: 18 }]}>
+          <Text style={styles.sectionTitle}>Rooms</Text>
 
-        {rooms.length === 0 ? (
-          <Text style={styles.smallText}>No rooms available.</Text>
-        ) : (
-          rooms.map((r) => (
-            <View key={r.room_Id} style={styles.roomCard}>
-              <View style={styles.roomTop}>
-                <Text style={styles.roomTitle}>{r.room_Name}</Text>
-                <View style={styles.pricePill}>
-                  <Ionicons name="pricetag-outline" size={13} color={YELLOW} />
-                  <Text style={styles.pricePillText}>Rs {r.price_per_person}</Text>
+          {rooms.length === 0 ? (
+            <Text style={styles.smallText}>No rooms available.</Text>
+          ) : (
+            rooms.map((r) => (
+              <View key={r.room_Id} style={styles.roomCard}>
+                <View style={styles.roomTop}>
+                  <Text style={styles.roomTitle}>{r.room_Name}</Text>
+                  <View style={styles.pricePill}>
+                    <Ionicons name="pricetag-outline" size={13} color={YELLOW} />
+                    <Text style={styles.pricePillText}>Rs {r.price_per_person}</Text>
+                  </View>
                 </View>
+
+                <Text style={styles.roomLine}>
+                  Rooms: {r.room_Count}  •  Max per room: {r.max_Persons}
+                </Text>
+
+                {!!r.description && <Text style={styles.roomDesc}>{r.description}</Text>}
               </View>
-
-              <Text style={styles.roomLine}>
-                Rooms: {r.room_Count}  •  Max per room: {r.max_Persons}
-              </Text>
-
-              {!!r.description && <Text style={styles.roomDesc}>{r.description}</Text>}
-            </View>
-          ))
-        )}
+            ))
+          )}
+        </View>
 
         {/* More Images */}
         <View style={[styles.card, { marginTop: 18 }]}>
