@@ -1,5 +1,3 @@
-// src/config.ts
-
 const API_URL_RAW = process.env.EXPO_PUBLIC_API_URL;
 
 if (!API_URL_RAW) {

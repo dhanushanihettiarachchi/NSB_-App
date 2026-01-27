@@ -1,3 +1,4 @@
+// PaymentProofViewer.tsx  
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -8,89 +9,66 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  Linking,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import * as FileSystem from "expo-file-system";
-import * as Sharing from "expo-sharing";
-import { API_BASE } from "../src/services/api";
+import { API_URL } from "../src/services/config";
 
 export default function PaymentProofViewer() {
   const { url } = useLocalSearchParams<{ url?: string }>();
 
   const [loadingView, setLoadingView] = useState(true);
-  const [downloading, setDownloading] = useState(false);
+  const [opening, setOpening] = useState(false);
 
-  // -------------------------
   // Build FULL URL safely
-  // -------------------------
   const fullUrl = useMemo(() => {
     if (!url) return "";
-    if (url.startsWith("http")) return url;
-    return `${API_BASE}${url.startsWith("/") ? url : `/${url}`}`;
+    const u = String(url);
+    if (u.startsWith("http")) return u;
+    return `${API_URL}${u.startsWith("/") ? u : `/${u}`}`;
   }, [url]);
 
-  const isPdf = fullUrl.toLowerCase().endsWith(".pdf");
+  // ✅ Encode URL to handle spaces/special characters
+  const safeUrl = useMemo(() => {
+    if (!fullUrl) return "";
+    return encodeURI(fullUrl);
+  }, [fullUrl]);
 
-  const fileName = useMemo(() => {
-    const name = fullUrl.split("/").pop() || "payment-proof";
-    return name.includes(".") ? name : isPdf ? `${name}.pdf` : `${name}.jpg`;
-  }, [fullUrl, isPdf]);
+  const isPdf = useMemo(() => safeUrl.toLowerCase().endsWith(".pdf"), [safeUrl]);
 
-  // -------------------------
-  // SAFE BACK (never stuck)
-  // -------------------------
+  useEffect(() => {
+    if (isPdf) setLoadingView(false);
+  }, [isPdf]);
+
   const goBackSafe = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace("/AdminReservations");
-    }
+    if (router.canGoBack()) router.back();
+    else router.replace("/AdminReservations");
   };
 
-  // -------------------------
-  // DOWNLOAD (reliable)
-  // -------------------------
-  const downloadFile = async () => {
+  const openFile = async () => {
     try {
-      setDownloading(true);
+      setOpening(true);
 
-      // 🌐 WEB — always works
+      if (!safeUrl) {
+        Alert.alert("Error", "File URL is missing");
+        return;
+      }
+
       if (Platform.OS === "web") {
-        window.open(fullUrl, "_blank");
+        window.open(safeUrl, "_blank");
         return;
       }
 
-      const dir =
-        (FileSystem as any).documentDirectory ||
-        (FileSystem as any).cacheDirectory;
-
-      if (!dir) {
-        Alert.alert("Error", "Storage not available");
-        return;
-      }
-
-      const localPath = dir + fileName;
-
-      const result = await FileSystem.downloadAsync(fullUrl, localPath);
-
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(result.uri);
-      } else {
-        Alert.alert("Downloaded", result.uri);
-      }
+      await Linking.openURL(safeUrl);
     } catch (e: any) {
-      Alert.alert("Download failed", e.message || "Try again");
+      Alert.alert("Error", e?.message || "Unable to open file");
     } finally {
-      setDownloading(false);
+      setOpening(false);
     }
   };
 
-  // -------------------------
-  // GUARD
-  // -------------------------
-  if (!fullUrl) {
+  if (!safeUrl) {
     return (
       <View style={styles.container}>
         <Text style={{ color: "#fff" }}>No payment proof available</Text>
@@ -100,16 +78,14 @@ export default function PaymentProofViewer() {
 
   return (
     <View style={styles.container}>
-      {/* BACK */}
       <TouchableOpacity style={styles.back} onPress={goBackSafe}>
         <Ionicons name="chevron-back" size={30} color="#fff" />
       </TouchableOpacity>
 
       <Text style={styles.title}>Payment Proof</Text>
 
-      {/* VIEWER */}
       <View style={styles.viewer}>
-        {loadingView && (
+        {loadingView && !isPdf && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#FFB600" />
             <Text style={{ color: "#B8C4E6", marginTop: 10 }}>
@@ -125,7 +101,7 @@ export default function PaymentProofViewer() {
           </View>
         ) : (
           <Image
-            source={{ uri: fullUrl }}
+            source={{ uri: safeUrl }} // ✅ use encoded url here
             style={styles.image}
             onLoadEnd={() => setLoadingView(false)}
             onError={() => {
@@ -136,24 +112,23 @@ export default function PaymentProofViewer() {
         )}
       </View>
 
-      {/* DOWNLOAD */}
       <TouchableOpacity
-        style={[styles.download, downloading && { opacity: 0.7 }]}
-        onPress={downloadFile}
-        disabled={downloading}
+        style={[styles.download, opening && { opacity: 0.7 }]}
+        onPress={openFile}
+        disabled={opening}
       >
-        {downloading ? (
+        {opening ? (
           <ActivityIndicator color="#00113D" />
         ) : (
           <>
-            <Ionicons name="download-outline" size={18} color="#00113D" />
-            <Text style={styles.downloadText}>Download</Text>
+            <Ionicons name="open-outline" size={18} color="#00113D" />
+            <Text style={styles.downloadText}>{isPdf ? "Open PDF" : "Open / Download"}</Text>
           </>
         )}
       </TouchableOpacity>
 
       <Text style={styles.url} numberOfLines={2}>
-        {fullUrl}
+        {safeUrl}
       </Text>
     </View>
   );
@@ -201,6 +176,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    padding: 16,
   },
   pdfText: {
     color: "#fff",
