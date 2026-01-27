@@ -15,6 +15,10 @@ import {
   InteractionManager,
   Pressable,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -103,10 +107,12 @@ export default function AdminReservations() {
 
   useEffect(() => {
     loadBookings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   const openDetails = async (item: any) => {
     setSelected(item);
+    setRejectReason(""); // ✅ reset when opening
     if (item.payment_slip_path) {
       setPaymentUrl(String(item.payment_slip_path));
     } else {
@@ -143,6 +149,19 @@ export default function AdminReservations() {
     }
   };
 
+  const openReject = () => {
+    // ✅ IMPORTANT: close details FIRST, then open reject
+    setDetailsVisible(false);
+    requestAnimationFrame(() => {
+      setRejectVisible(true);
+    });
+  };
+
+  const closeReject = () => {
+    setRejectVisible(false);
+    setRejectReason("");
+  };
+
   const submitReject = async () => {
     if (!selected) return;
 
@@ -155,9 +174,7 @@ export default function AdminReservations() {
     try {
       await bookingsApi.reject(selected.booking_id, admin_id, reason);
       Alert.alert("Rejected", "Booking rejected");
-      setRejectVisible(false);
-      setDetailsVisible(false);
-      setRejectReason("");
+      closeReject();
       loadBookings();
     } catch (e: any) {
       Alert.alert("Error", e.message || "Reject failed");
@@ -223,7 +240,6 @@ export default function AdminReservations() {
             style={[
               styles.paymentPill,
               {
-                // ✅ Uploaded stays BLUE, Not Uploaded uses NEW color (not YELLOW)
                 backgroundColor: hasPayment ? BLUE : PAYMENT_NOT_UPLOADED,
               },
             ]}
@@ -317,7 +333,7 @@ export default function AdminReservations() {
       )}
 
       {/* DETAILS MODAL */}
-      <Modal visible={detailsVisible} animationType="slide" transparent={false}>
+      <Modal visible={detailsVisible} animationType="slide" transparent={false} onRequestClose={() => setDetailsVisible(false)}>
         <LinearGradient colors={["#020038", "#05004A", "#020038"]} style={styles.modalBg}>
           <TouchableOpacity
             style={styles.modalClose}
@@ -365,7 +381,6 @@ export default function AdminReservations() {
                       return;
                     }
 
-                    setRejectVisible(false);
                     setDetailsVisible(false);
 
                     InteractionManager.runAfterInteractions(() => {
@@ -386,7 +401,8 @@ export default function AdminReservations() {
                       <Text style={styles.approveText}>Approve</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.rejectBtn} onPress={() => setRejectVisible(true)} activeOpacity={0.9}>
+                    {/* ✅ IMPORTANT: use openReject() */}
+                    <TouchableOpacity style={styles.rejectBtn} onPress={openReject} activeOpacity={0.9}>
                       <Text style={styles.rejectText}>Reject</Text>
                     </TouchableOpacity>
                   </View>
@@ -396,38 +412,53 @@ export default function AdminReservations() {
 
             <View style={{ height: 24 }} />
           </ScrollView>
+        </LinearGradient>
+      </Modal>
 
-          <Modal visible={rejectVisible} transparent animationType="fade">
-            <View style={styles.rejectOverlay}>
-              <View style={styles.rejectCard}>
-                <View style={styles.rejectTop}>
-                  <Text style={styles.rejectTitle}>Reject Booking</Text>
-                  <TouchableOpacity onPress={() => setRejectVisible(false)} style={styles.rejectClose} activeOpacity={0.9}>
-                    <Ionicons name="close" size={18} color="#fff" />
+      {/* ✅ REJECT MODAL (MOVED OUTSIDE DETAILS MODAL) */}
+      <Modal visible={rejectVisible} transparent animationType="fade" onRequestClose={closeReject}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.rejectOverlay}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              style={{ width: "100%" }}
+            >
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
+              >
+                <View style={styles.rejectCard}>
+                  <View style={styles.rejectTop}>
+                    <Text style={styles.rejectTitle}>Reject Booking</Text>
+                    <TouchableOpacity onPress={closeReject} style={styles.rejectClose} activeOpacity={0.9}>
+                      <Ionicons name="close" size={18} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={styles.rejectHint}>Please enter the reason for rejection.</Text>
+
+                  <View style={styles.inputWrap}>
+                    <Ionicons name="alert-circle-outline" size={18} color={MUTED} />
+                    <TextInput
+                      value={rejectReason}
+                      onChangeText={setRejectReason}
+                      placeholder="Reason"
+                      placeholderTextColor="rgba(255,255,255,0.45)"
+                      style={styles.rejectInput}
+                      multiline
+                      blurOnSubmit
+                      returnKeyType="done"
+                    />
+                  </View>
+
+                  <TouchableOpacity style={styles.submitReject} onPress={submitReject} activeOpacity={0.9}>
+                    <Text style={styles.submitRejectText}>Submit</Text>
                   </TouchableOpacity>
                 </View>
-
-                <Text style={styles.rejectHint}>Please enter the reason for rejection.</Text>
-
-                <View style={styles.inputWrap}>
-                  <Ionicons name="alert-circle-outline" size={18} color={MUTED} />
-                  <TextInput
-                    value={rejectReason}
-                    onChangeText={setRejectReason}
-                    placeholder="Reason"
-                    placeholderTextColor="rgba(255,255,255,0.45)"
-                    style={styles.rejectInput}
-                    multiline
-                  />
-                </View>
-
-                <TouchableOpacity style={styles.submitReject} onPress={submitReject} activeOpacity={0.9}>
-                  <Text style={styles.submitRejectText}>Submit</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </Modal>
-        </LinearGradient>
+              </ScrollView>
+            </KeyboardAvoidingView>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
     </LinearGradient>
   );

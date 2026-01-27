@@ -1,7 +1,7 @@
-// app/context/BookingDraftContext.tsx
+// app/(context)/BookingDraftContext.tsx
 
-import React, { createContext, useContext, useMemo, useState } from 'react';
-
+import React, { createContext, useContext, useMemo, useState } from "react";
+import { View } from "react-native";
 
 export type DraftItem = {
   room_id: number;
@@ -39,7 +39,6 @@ export type BookingDraft = {
   // existing bookings (pay later)
   booking_ids?: number[];
 
-  // ✅ NEW: mark slip status in UI (until backend is connected)
   paymentProofUploaded?: boolean;
 };
 
@@ -61,16 +60,21 @@ export function BookingDraftProvider({ children }: { children: React.ReactNode }
 
   const clearDraft = () => setDraft(null);
 
-  const value = useMemo(
-    () => ({ draft, setDraft, patchDraft, clearDraft }),
-    [draft]
-  );
+  const value = useMemo(() => ({ draft, setDraft, patchDraft, clearDraft }), [draft]);
 
   return <BookingDraftContext.Provider value={value}>{children}</BookingDraftContext.Provider>;
 }
 
 export function useBookingDraft() {
   const ctx = useContext(BookingDraftContext);
-  if (!ctx) throw new Error('useBookingDraft must be used inside BookingDraftProvider');
+  if (!ctx) throw new Error("useBookingDraft must be used inside BookingDraftProvider");
   return ctx;
+}
+
+/**
+ * ✅ Default export added ONLY to silence Expo Router "missing default export" warnings
+ * (This file is NOT a screen; it's a context module)
+ */
+export default function BookingDraftContextRoutePlaceholder() {
+  return <View />;
 }

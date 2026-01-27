@@ -78,9 +78,10 @@ export default function PaymentProofViewer() {
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.back} onPress={goBackSafe}>
-        <Ionicons name="chevron-back" size={30} color="#fff" />
-      </TouchableOpacity>
+      <TouchableOpacity style={styles.headerBack} onPress={goBackSafe}>
+        <Ionicons name="chevron-back" size={24} color="#fff" />
+    </TouchableOpacity>
+
 
       <Text style={styles.title}>Payment Proof</Text>
 
@@ -141,12 +142,18 @@ const styles = StyleSheet.create({
     paddingTop: 55,
     paddingHorizontal: 16,
   },
-  back: {
-    position: "absolute",
-    top: 50,
-    left: 16,
-    zIndex: 10,
-  },
+  headerBack: {
+  position: "absolute",
+  top: 30,
+  left: 16,
+  zIndex: 20,
+  padding: 6,
+  backgroundColor: "rgba(255,255,255,0.09)",
+  borderRadius: 20,
+  borderWidth: 1,
+  borderColor: "rgba(255,255,255,0.10)",
+},
+
   title: {
     color: "#fff",
     fontSize: 18,

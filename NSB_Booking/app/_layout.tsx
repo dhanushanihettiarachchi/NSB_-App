@@ -1,7 +1,7 @@
 // app/_layout.tsx  (ROOT layout)
 
 import { Stack } from 'expo-router';
-import { BookingDraftProvider } from './context/BookingDraftContext';
+import { BookingDraftProvider } from './(context)/BookingDraftContext';
 
 export default function RootLayout() {
   return (

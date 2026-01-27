@@ -14,7 +14,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { API_URL } from "../src/services/config";
-import { useBookingDraft } from "./context/BookingDraftContext";
+import { useBookingDraft } from "./(context)/BookingDraftContext";
 
 const NAVY = "#020038";
 const BLACK_BOX = "#050515";
@@ -59,7 +59,7 @@ type BookingRow = {
 type Filter = "Pending" | "Approved" | "Rejected" | "All";
 
 function normalizeStatus(s: any): Filter {
-  const v = String(s || "").toLowerCase();
+  const v = String(s ?? "").trim().toLowerCase();
   if (v === "pending") return "Pending";
   if (v === "approved") return "Approved";
   if (v === "rejected") return "Rejected";
@@ -105,9 +105,9 @@ export default function UserBookings() {
     try {
       const res = await fetch(`${API_URL}/bookings/user/${userId}`);
       const json = await res.json().catch(() => ({}));
-      const list = (json.bookings || []) as BookingRow[];
-
+      const list = Array.isArray(json.bookings) ? (json.bookings as BookingRow[]) : [];
       setRows(list);
+
 
       // ✅ payment status for all booking ids
       const ids = list
@@ -156,7 +156,7 @@ export default function UserBookings() {
       const key = [
         fmtDate(r.check_in_date),
         fmtDate(r.check_out_date),
-        fmtDate(r.created_date),
+        String(r.created_date || ""),
         String(r.circuit_Name || ""),
       ].join("|");
 
@@ -332,7 +332,9 @@ export default function UserBookings() {
           }
         >
           {qrFocusedGroups.map((g) => {
+            if (!g?.rows?.length) return null;   // ✅ ADD THIS LINE
             const first = g.rows[0];
+            if (!first) return null;
             const nights = diffNights(
               fmtDate(first.check_in_date),
               fmtDate(first.check_out_date)

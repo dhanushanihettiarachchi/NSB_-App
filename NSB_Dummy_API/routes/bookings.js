@@ -200,22 +200,24 @@ router.get('/availability', async (req, res) => {
           WHERE circuit_Id = @circuit_Id AND is_active = 1
         ),
         Approved AS (
-          SELECT
-            b.room_id,
-            b.need_room_count,
-            DATEADD(
-              MINUTE,
-              DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
-              CAST(CAST(b.check_in_date AS date) AS datetime)
-            ) AS OldStart,
-            DATEADD(
-              MINUTE,
-              DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
-              CAST(CAST(b.check_out_date AS date) AS datetime)
-            ) AS OldEnd
-          FROM Bookings b
-          WHERE b.status = 'Approved'
-        ),
+  SELECT
+    b.room_id,
+    b.need_room_count,
+    DATEADD(
+      MINUTE,
+      DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
+      CAST(CAST(b.check_in_date AS date) AS datetime)
+    ) AS OldStart,
+    DATEADD(
+      MINUTE,
+      DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
+      CAST(CAST(b.check_out_date AS date) AS datetime)
+    ) AS OldEnd
+  FROM Bookings b
+  INNER JOIN Rooms r ON r.room_Id = b.room_id   -- ✅ restrict to this circuit rooms only
+  WHERE b.status = 'Approved'
+),
+
         NewRange AS (
           SELECT
             DATEADD(
@@ -257,6 +259,159 @@ router.get('/availability', async (req, res) => {
     return res.status(500).json({ message: 'Server error', error: err.message });
   }
 });
+
+// =====================================================
+// ✅ NEW: GET /bookings/fully-booked-days?circuitId=123&from=YYYY-MM-DD&to=YYYY-MM-DD&time=HH:mm
+// Returns days where ALL room types have remaining <= 0 for a 1-night stay starting that day.
+// =====================================================
+router.get('/fully-booked-days', async (req, res) => {
+  try {
+    const circuitId = Number(req.query.circuitId);
+    const from = String(req.query.from || '');
+    const to = String(req.query.to || '');
+    const time = normalizeTimeHHMM(String(req.query.time || '')) || '10:00';
+
+    if (!Number.isInteger(circuitId) || circuitId <= 0) {
+      return res.status(400).json({ message: 'Invalid circuitId' });
+    }
+    if (!isValidDateYYYYMMDD(from) || !isValidDateYYYYMMDD(to)) {
+      return res.status(400).json({ message: 'Invalid from/to format. Use YYYY-MM-DD.' });
+    }
+    if (to < from) {
+      return res.status(400).json({ message: 'to must be >= from.' });
+    }
+
+    const pool = await getPool();
+
+    // If circuit has zero active rooms -> every day is fully booked.
+    const roomCountRes = await pool.request()
+      .input('circuit_Id', sql.Int, circuitId)
+      .query(`
+        SELECT COUNT(1) AS cnt
+        FROM CircuitRooms
+        WHERE circuit_Id = @circuit_Id AND is_active = 1;
+      `);
+
+    const activeRoomsCount = Number(roomCountRes.recordset?.[0]?.cnt || 0);
+    if (activeRoomsCount <= 0) {
+      // Return all days in [from..to]
+      const daysRes = await pool.request()
+        .input('fromDate', sql.Date, from)
+        .input('toDate', sql.Date, to)
+        .query(`
+          ;WITH Dates AS (
+            SELECT CAST(@fromDate AS date) AS d
+            UNION ALL
+            SELECT DATEADD(day, 1, d)
+            FROM Dates
+            WHERE d < CAST(@toDate AS date)
+          )
+          SELECT CONVERT(varchar(10), d, 23) AS day
+          FROM Dates
+          OPTION (MAXRECURSION 400);
+        `);
+
+      res.set('Cache-Control', 'no-store');
+      return res.json({ days: daysRes.recordset.map((x) => x.day) });
+    }
+
+    // Normal: compute days where NO room has remaining > 0 for [day..day+1) at the given time
+    const result = await pool.request()
+      .input('circuit_Id', sql.Int, circuitId)
+      .input('fromDate', sql.Date, from)
+      .input('toDate', sql.Date, to)
+      .input('newTime', sql.VarChar(5), time)
+      .query(`
+        ;WITH Dates AS (
+          SELECT CAST(@fromDate AS date) AS d
+          UNION ALL
+          SELECT DATEADD(day, 1, d)
+          FROM Dates
+          WHERE d < CAST(@toDate AS date)
+        ),
+        Rooms AS (
+          SELECT room_Id, room_Count
+          FROM CircuitRooms
+          WHERE circuit_Id = @circuit_Id AND is_active = 1
+        ),
+        Approved AS (
+          SELECT
+            b.room_id,
+            b.need_room_count,
+            DATEADD(
+              MINUTE,
+              DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
+              CAST(CAST(b.check_in_date AS date) AS datetime)
+            ) AS OldStart,
+            DATEADD(
+              MINUTE,
+              DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
+              CAST(CAST(b.check_out_date AS date) AS datetime)
+            ) AS OldEnd
+          FROM Bookings b
+          INNER JOIN Rooms r ON r.room_Id = b.room_id
+          WHERE b.status = 'Approved'
+        ),
+        DayRanges AS (
+          SELECT
+            d.d AS day,
+            DATEADD(
+              MINUTE,
+              DATEDIFF(MINUTE, 0, CAST(@newTime AS time)),
+              CAST(CAST(d.d AS date) AS datetime)
+            ) AS NewStart,
+            DATEADD(
+              MINUTE,
+              DATEDIFF(MINUTE, 0, CAST(@newTime AS time)),
+              CAST(DATEADD(day, 1, CAST(d.d AS date)) AS datetime)
+            ) AS NewEnd
+          FROM Dates d
+        ),
+        Overlapping AS (
+          SELECT
+            dr.day,
+            a.room_id,
+            a.need_room_count
+          FROM Approved a
+          INNER JOIN DayRanges dr
+            ON a.OldStart < dr.NewEnd
+           AND a.OldEnd > dr.NewStart
+        ),
+        PerRoomPerDay AS (
+          SELECT
+            dr.day,
+            r.room_Id,
+            r.room_Count,
+            ISNULL(SUM(o.need_room_count), 0) AS booked_count,
+            (r.room_Count - ISNULL(SUM(o.need_room_count), 0)) AS remaining
+          FROM DayRanges dr
+          CROSS JOIN Rooms r
+          LEFT JOIN Overlapping o
+            ON o.day = dr.day AND o.room_id = r.room_Id
+          GROUP BY dr.day, r.room_Id, r.room_Count
+        ),
+        DayStatus AS (
+          SELECT
+            day,
+            SUM(CASE WHEN remaining > 0 THEN 1 ELSE 0 END) AS any_available_types
+          FROM PerRoomPerDay
+          GROUP BY day
+        )
+        SELECT CONVERT(varchar(10), day, 23) AS day
+        FROM DayStatus
+        WHERE any_available_types = 0
+        ORDER BY day ASC
+        OPTION (MAXRECURSION 400);
+      `);
+
+    res.set('Cache-Control', 'no-store');
+    return res.json({ days: result.recordset.map((x) => x.day) });
+  } catch (err) {
+    console.error('fully-booked-days error >>>', err);
+    return res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
 
 // =====================================================
 // POST /bookings

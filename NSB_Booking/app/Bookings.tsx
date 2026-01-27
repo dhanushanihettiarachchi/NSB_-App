@@ -19,7 +19,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Calendar } from 'react-native-calendars';
 import { LinearGradient } from 'expo-linear-gradient';
 import { API_URL } from '../src/services/config';
-import { useBookingDraft } from './context/BookingDraftContext';
+import { useBookingDraft } from './(context)/BookingDraftContext';
 
 type Room = {
   room_Id: number;
@@ -38,13 +38,21 @@ type BlockedRange = {
   status: string; // Approved
 };
 
+type AvailabilityRow = {
+  room_Id: number;
+  room_Name: string;
+  room_Count: number;
+  booked_count: number;
+  remaining: number;
+  max_Persons: number;
+  price_per_person: number;
+};
+
 const NAVY = '#020038';
 const BLACK_BOX = '#050515';
 const CREAM_INPUT = '#FFEBD3';
 const YELLOW = '#FFB600';
 const BTN_TEXT = '#00113D';
-const CARD_EDGE = '#2C2750';
-const PANEL = '#0A0830';
 
 // ------- Web datepicker -------
 let WebDatePicker: any = null;
@@ -63,13 +71,11 @@ const formatTimeHHMM = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes()
 const normalizeBookingTimeHHMM = (t: any, fallback: string = '10:00') => {
   if (!t) return fallback;
 
-  // Case 1: "08:15" or "08:15:00.0000000"
   if (typeof t === 'string') {
     const m = t.match(/(\d{2}):(\d{2})/);
     return m ? `${m[1]}:${m[2]}` : fallback;
   }
 
-  // Case 2: JS Date object (some drivers serialize SQL time as Date)
   if (t instanceof Date && !Number.isNaN(t.getTime())) {
     return `${pad2(t.getHours())}:${pad2(t.getMinutes())}`;
   }
@@ -93,36 +99,6 @@ const diffNights = (checkInStr: string, checkOutStr: string) => {
   const ms = b.getTime() - a.getTime();
   const nights = Math.ceil(ms / (1000 * 60 * 60 * 24));
   return nights > 0 ? nights : 0;
-};
-
-// build datetime using date "YYYY-MM-DD" and time "HH:mm" (default 10:00)
-const buildDT = (dateStr: string, timeStr?: string | null) => {
-  const d = String(dateStr || '').slice(0, 10);
-  const t = (String(timeStr || '') || '10:00').slice(0, 5);
-  return new Date(`${d}T${t}:00`);
-};
-
-// ✅ Overlap check: [oldStart, oldEnd) with rule newStart < oldEnd && newEnd > oldStart
-const overlapsApproved = (
-  newCheckIn: string,
-  newCheckOut: string,
-  newTime: string | null,
-  blocked: BlockedRange[]
-) => {
-  if (!newCheckIn || !newCheckOut) return false;
-
-  const newStart = buildDT(newCheckIn, newTime || '10:00');
-  const newEnd = buildDT(newCheckOut, newTime || '10:00');
-  if (Number.isNaN(newStart.getTime()) || Number.isNaN(newEnd.getTime())) return false;
-
-  return blocked.some((b) => {
-    if (String(b.status || '').toLowerCase() !== 'approved') return false;
-    const oldStart = buildDT(b.check_in_date, normalizeBookingTimeHHMM(b.booking_time, '10:00'));
-    const oldEnd = buildDT(b.check_out_date, normalizeBookingTimeHHMM(b.booking_time, '10:00'));
-
-    // ✅ [start, end) style overlap
-    return oldStart < newEnd && oldEnd > newStart;
-  });
 };
 
 // ✅ web input style
@@ -158,57 +134,23 @@ function Label({ text, required }: { text: string; required?: boolean }) {
   );
 }
 
-// ------- date utils for blocking days -------
+// ------- date utils -------
 const addDays = (d: Date, n: number) => {
   const x = new Date(d);
   x.setDate(x.getDate() + n);
   return x;
 };
 
-// build date string list [start, end) day by day (end excluded)
-const daysBetweenExclusiveEnd = (startStr: string, endStr: string) => {
-  const start = parseYYYYMMDD(startStr);
-  const end = parseYYYYMMDD(endStr);
-  if (!start || !end) return [];
-  const out: string[] = [];
-
-  // normalize to midnight
-  let cur = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, 0, 0, 0);
-  const endMid = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 0, 0, 0, 0);
-
-  while (cur < endMid) {
-    out.push(formatDateYYYYMMDD(cur));
-    cur = addDays(cur, 1);
-  }
-  return out;
-};
-
-// checkout-day min time map: date -> latest checkout time on that date
+// checkout-day min time map: date -> latest checkout time on that date (circuit-level)
 const buildCheckoutMinTimeMap = (blocked: BlockedRange[]) => {
   const map: Record<string, string> = {};
   blocked.forEach((b) => {
     if (String(b.status || '').toLowerCase() !== 'approved') return;
     const day = String(b.check_out_date || '').slice(0, 10);
     const t = normalizeBookingTimeHHMM(b.booking_time, '10:00');
-
-    // keep LATEST
     if (!map[day] || t > map[day]) map[day] = t;
   });
   return map;
-};
-
-// blocked days set = all days from check_in to day before check_out
-const buildBlockedDaysSet = (blocked: BlockedRange[]) => {
-  const s = new Set<string>();
-  blocked.forEach((b) => {
-    if (String(b.status || '').toLowerCase() !== 'approved') return;
-    const days = daysBetweenExclusiveEnd(
-      String(b.check_in_date).slice(0, 10),
-      String(b.check_out_date).slice(0, 10)
-    );
-    days.forEach((d) => s.add(d));
-  });
-  return s;
 };
 
 export default function Bookings() {
@@ -247,9 +189,18 @@ export default function Bookings() {
   const [pickerTarget, setPickerTarget] = useState<'checkIn' | 'checkOut' | 'time'>('checkIn');
   const [tempPickerValue, setTempPickerValue] = useState<Date>(new Date());
 
-  // ✅ blocked ranges approved
+  // ✅ still load blocked (ONLY for minTime rule display)
   const [blocked, setBlocked] = useState<BlockedRange[]>([]);
   const [loadingBlocked, setLoadingBlocked] = useState(false);
+
+  // ✅ availability
+  const [availability, setAvailability] = useState<AvailabilityRow[]>([]);
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
+
+  // ✅ fully booked days (circuit-level)
+  const [fullyBookedDays, setFullyBookedDays] = useState<string[]>([]);
+  const [loadingFullyBookedDays, setLoadingFullyBookedDays] = useState(false);
+
 
   // ✅ UI banner + center popup
   const [uiError, setUiError] = useState('');
@@ -272,6 +223,7 @@ export default function Bookings() {
     setSelectedRoomQty({});
     setGuestsByRoom({});
     setRoomPickerOpen(false);
+    setAvailability([]);
   };
 
   // Load rooms
@@ -294,7 +246,7 @@ export default function Bookings() {
     load();
   }, [circuitId]);
 
-  // ✅ Load blocked approved ranges (from backend)
+  // Load blocked approved ranges (ONLY for min time notes)
   useEffect(() => {
     const loadBlocked = async () => {
       if (!circuitId) return;
@@ -316,14 +268,150 @@ export default function Bookings() {
     loadBlocked();
   }, [circuitId]);
 
-  const blockedDaysSet = useMemo(() => buildBlockedDaysSet(blocked), [blocked]);
+    // ✅ Load fully booked days (disable/red dates when ALL room types are full)
+  useEffect(() => {
+    const loadFullyBookedDays = async () => {
+      if (!circuitId) return;
+
+      try {
+        setLoadingFullyBookedDays(true);
+
+        const today = new Date();
+        const from = formatDateYYYYMMDD(today);
+        const to = formatDateYYYYMMDD(addDays(today, 365));
+
+        const url =
+          `${API_URL}/bookings/fully-booked-days` +
+          `?circuitId=${encodeURIComponent(circuitId)}` +
+          `&from=${encodeURIComponent(from)}` +
+          `&to=${encodeURIComponent(to)}` +
+          `&time=${encodeURIComponent(bookingTime || '10:00')}`;
+
+        const res = await fetch(url);
+        const json = await res.json().catch(() => ({}));
+        const days = Array.isArray(json.days) ? json.days : [];
+        setFullyBookedDays(days);
+      } catch (e) {
+        console.log('load fullyBookedDays error:', e);
+        setFullyBookedDays([]);
+      } finally {
+        setLoadingFullyBookedDays(false);
+      }
+    };
+
+    loadFullyBookedDays();
+  }, [circuitId, bookingTime]);
+
+
   const checkoutMinTimeMap = useMemo(() => buildCheckoutMinTimeMap(blocked), [blocked]);
 
-  // ✅ for selected check-in day, if it is a checkout day, enforce min time
   const minTimeForSelectedCheckIn = useMemo(() => {
     if (!checkIn) return null;
-    return checkoutMinTimeMap[checkIn] || null; // "08:00"
+    return checkoutMinTimeMap[checkIn] || null;
   }, [checkIn, checkoutMinTimeMap]);
+
+  // ✅ fetch availability whenever date/time changes (only if valid)
+  useEffect(() => {
+    const fetchAvailability = async () => {
+      if (!circuitId) return;
+
+      // Need all three to compute correct overlap-by-time
+      if (!checkIn || !checkOut || !bookingTime) {
+        setAvailability([]);
+        return;
+      }
+      if (checkOut <= checkIn) {
+        setAvailability([]);
+        return;
+      }
+
+      try {
+        setLoadingAvailability(true);
+        const url =
+          `${API_URL}/bookings/availability` +
+          `?circuitId=${encodeURIComponent(circuitId)}` +
+          `&checkIn=${encodeURIComponent(checkIn)}` +
+          `&checkOut=${encodeURIComponent(checkOut)}` +
+          `&time=${encodeURIComponent(bookingTime || '10:00')}`;
+
+        const res = await fetch(url);
+        const json = await res.json().catch(() => ({}));
+        const list = (json.availability || []) as AvailabilityRow[];
+        setAvailability(Array.isArray(list) ? list : []);
+      } catch (e) {
+        console.log('availability error:', e);
+        setAvailability([]);
+      } finally {
+        setLoadingAvailability(false);
+      }
+    };
+
+    fetchAvailability();
+  }, [circuitId, checkIn, checkOut, bookingTime]);
+
+  // availability map: room_Id -> remaining
+  const remainingMap = useMemo(() => {
+    const map: Record<number, number> = {};
+    availability.forEach((a) => {
+      map[a.room_Id] = Number(a.remaining) || 0;
+    });
+    return map;
+  }, [availability]);
+
+  const getRemainingForRoom = (room: Room) => {
+    // before selecting date/time, allow full room_Count
+    if (!checkIn || !checkOut || !bookingTime) return room.room_Count || 0;
+    // after selecting date/time, use API remaining
+    if (remainingMap[room.room_Id] == null) return 0; // safe: if not returned, treat as unavailable
+    return Math.max(0, remainingMap[room.room_Id]);
+  };
+
+  // ✅ clamp selected qty if availability changes
+  useEffect(() => {
+    if (!checkIn || !checkOut || !bookingTime) return;
+
+    setSelectedRoomQty((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      Object.keys(next).forEach((k) => {
+        const roomId = Number(k);
+        const room = rooms.find((r) => r.room_Id === roomId);
+        if (!room) return;
+
+        const maxAllowed = getRemainingForRoom(room);
+        const cur = next[roomId] || 0;
+
+        if (maxAllowed <= 0) {
+          // remove if no longer available
+          delete next[roomId];
+          changed = true;
+
+          setGuestsByRoom((gprev) => {
+            const g = { ...gprev };
+            delete g[roomId];
+            return g;
+          });
+          return;
+        }
+
+        if (cur > maxAllowed) {
+          next[roomId] = maxAllowed;
+          changed = true;
+
+          setGuestsByRoom((gprev) => {
+            const cap = maxAllowed * (room.max_Persons || 0);
+            const currentGuests = gprev[roomId] || 0;
+            if (currentGuests <= cap) return gprev;
+            return { ...gprev, [roomId]: cap };
+          });
+        }
+      });
+
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availability, rooms]);
 
   // computed
   const nights = useMemo(() => diffNights(checkIn, checkOut), [checkIn, checkOut]);
@@ -367,27 +455,16 @@ export default function Bookings() {
 
   const grandTotal = useMemo(() => perRoomTotals.reduce((sum, x) => sum + x.subtotal, 0), [perRoomTotals]);
 
-  // ✅ Web: disable days
-  const isWebDayDisabled = (date: Date) => {
-    const ds = formatDateYYYYMMDD(date);
-    return blockedDaysSet.has(ds);
-  };
-
-  // ✅ Web: make list of excluded dates (next 365)
-  const webExcludeDates = useMemo(() => {
-    const out: Date[] = [];
-    const today = new Date();
-    for (let i = 0; i < 365; i++) {
-      const d = addDays(today, i);
-      if (isWebDayDisabled(d)) out.push(d);
-    }
-    return out;
-  }, [blockedDaysSet]);
-
   // ---- actions ----
   const addRoomType = (roomId: number) => {
     const room = rooms.find((r) => r.room_Id === roomId);
     if (!room) return;
+
+    const remaining = getRemainingForRoom(room);
+    if (remaining <= 0) {
+      showUiError(`Room ${room.room_Name} is not available for selected dates/time.`);
+      return;
+    }
 
     setSelectedRoomQty((prev) => {
       if (prev[roomId] && prev[roomId] > 0) return prev;
@@ -398,10 +475,19 @@ export default function Bookings() {
   };
 
   const incQty = (room: Room) => {
+    const maxAllowed = getRemainingForRoom(room);
+
     setSelectedRoomQty((prev) => {
       const current = prev[room.room_Id] || 0;
-      const next = Math.min(room.room_Count, current + 1);
-      if (next === current) showUiError(`Only ${room.room_Count} rooms available for Room ${room.room_Name}.`);
+      const next = Math.min(maxAllowed, current + 1);
+
+      if (next === current) {
+        showUiError(
+          checkIn && checkOut && bookingTime
+            ? `Only ${maxAllowed} room(s) remaining for Room ${room.room_Name} on selected dates/time.`
+            : `Only ${room.room_Count} rooms available for Room ${room.room_Name}.`
+        );
+      }
       return { ...prev, [room.room_Id]: next };
     });
   };
@@ -459,7 +545,7 @@ export default function Bookings() {
     setPickerOpen(true);
   };
 
-  // ✅ validate checkout-day min time
+  // ✅ validate checkout-day min time (kept)
   const validateMinTimeRule = (dateStr: string, timeStr: string) => {
     const minT = checkoutMinTimeMap[dateStr];
     if (minT && timeStr && timeStr < minT) {
@@ -472,24 +558,19 @@ export default function Bookings() {
   const applyTimePicker = () => {
     const nextTime = formatTimeHHMM(tempPickerValue);
 
-    // ✅ if check-in is a checkout-day, enforce min time
     if (checkIn) {
-      if (!validateMinTimeRule(checkIn, nextTime)) {
+      if (!validateMinTimeRule(checkIn, nextTime || '10:00')) {
         setPickerOpen(false);
         return;
       }
     }
 
-    // ✅ also validate overlap if dates are set
-    const time = nextTime || '10:00';
-    if (checkIn && checkOut && overlapsApproved(checkIn, checkOut, time, blocked)) {
-      showUiError('Selected date/time overlaps an approved booking. Please select another date/time.');
-      setPickerOpen(false);
-      return;
-    }
-
     setBookingTime(nextTime);
     setPickerOpen(false);
+
+    // reset room selection when time changes (optional but safer)
+    setSelectedRoomQty({});
+    setGuestsByRoom({});
   };
 
   // ---- validation ----
@@ -499,18 +580,10 @@ export default function Bookings() {
     if (checkOut <= checkIn) return 'Check-out date must be after check-in date.';
     if (!nights) return 'Please select valid dates (at least 1 night).';
 
-    // ✅ require time selection
     if (!bookingTime) return 'Please select check-in time.';
 
-    // ✅ enforce min time rule if applicable
     const time = bookingTime || '10:00';
     if (!validateMinTimeRule(checkIn, time)) return 'Please select a valid time.';
-
-
-    // ✅ ensure range does not overlap approved bookings
-    if (overlapsApproved(checkIn, checkOut, time, blocked)) {
-      return 'Selected date/time overlaps an approved booking. Please select another date/time.';
-    }
 
     if (selectedRoomsList.length === 0) return 'Please add at least one room type.';
     if (totalGuestsNum <= 0) return 'Please enter guests for at least one selected room type.';
@@ -518,6 +591,17 @@ export default function Bookings() {
       return `Not enough capacity. Selected rooms can host ${totalCapacity}, but you entered ${totalGuestsNum} guests.`;
     }
     if (!grandTotal || grandTotal <= 0) return 'Total amount is 0. Please check guests and dates.';
+
+    // ✅ Ensure not exceeding remaining (if availability loaded)
+    if (checkIn && checkOut && bookingTime) {
+      for (const { room, qty } of selectedRoomsList) {
+        const remaining = getRemainingForRoom(room);
+        if (qty > remaining) {
+          return `Room ${room.room_Name} not enough available. Remaining=${remaining}, requested=${qty}.`;
+        }
+      }
+    }
+
     return null;
   };
 
@@ -560,7 +644,6 @@ export default function Bookings() {
         return;
       }
 
-      // ✅ ADDED PART ONLY (QR flow) — logic unchanged
       clearForm();
 
       const booking_ids: number[] = Array.isArray(data?.booking_ids) ? data.booking_ids : [];
@@ -571,7 +654,6 @@ export default function Bookings() {
         return;
       }
 
-      // ✅ Create / get QR record for this booking
       const qrRes = await fetch(`${API_URL}/qr-codes/for-booking`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -590,7 +672,6 @@ export default function Bookings() {
       });
 
       showUiError('Booking submitted ✅ (Pending). QR generated.');
-      // ✅ END ADDED PART ONLY
     } catch (e) {
       console.log(e);
       showUiError('Unable to submit booking');
@@ -685,23 +766,35 @@ export default function Bookings() {
     }
   };
 
-  // ✅ build marked dates for mobile calendar
+  const fullyBookedDaysSet = useMemo(() => new Set(fullyBookedDays), [fullyBookedDays]);
+
+
+  // ✅ build marked dates for mobile calendar (no disabling now)
   const markedDatesForMobile = useMemo(() => {
     const marked: any = {};
 
-    // mark blocked days (red + disabled)
-    blockedDaysSet.forEach((d) => {
-      marked[d] = {
-        disabled: true,
-        disableTouchEvent: true,
+    if (checkIn) {
+      marked[checkIn] = {
+        selected: true,
+        selectedColor: '#FFB600',
         customStyles: {
-          container: { backgroundColor: '#B00020', borderRadius: 8, opacity: 0.35 },
-          text: { color: '#fff', fontWeight: '700' },
+          container: { backgroundColor: '#FFB600', borderRadius: 8 },
+          text: { color: '#00113D', fontWeight: '900' },
         },
       };
-    });
+    }
+    if (checkOut) {
+      marked[checkOut] = {
+        selected: true,
+        selectedColor: '#2C2750',
+        customStyles: {
+          container: { backgroundColor: '#2C2750', borderRadius: 8 },
+          text: { color: '#fff', fontWeight: '900' },
+        },
+      };
+    }
 
-    // mark checkout-days (yellow border) - selectable
+    // (optional) highlight checkout-day min-time dates with yellow border
     Object.keys(checkoutMinTimeMap).forEach((d) => {
       if (!marked[d]) marked[d] = {};
       marked[d] = {
@@ -717,49 +810,41 @@ export default function Bookings() {
       };
     });
 
-    // selected checkIn/checkOut highlight
-    if (checkIn) {
-      marked[checkIn] = {
-        ...(marked[checkIn] || {}),
-        selected: true,
-        selectedColor: '#FFB600',
+        // ✅ mark fully booked days as RED + disabled
+    fullyBookedDaysSet.forEach((d) => {
+      // don't overwrite selected styling if user already picked it
+      if (marked[d]?.selected) return;
+
+      marked[d] = {
+        disabled: true,
+        disableTouchEvent: true,
         customStyles: {
-          ...(marked[checkIn]?.customStyles || {}),
-          container: { backgroundColor: '#FFB600', borderRadius: 8 },
-          text: { color: '#00113D', fontWeight: '900' },
-        },
-      };
-    }
-    if (checkOut) {
-      marked[checkOut] = {
-        ...(marked[checkOut] || {}),
-        selected: true,
-        selectedColor: '#2C2750',
-        customStyles: {
-          ...(marked[checkOut]?.customStyles || {}),
-          container: { backgroundColor: '#2C2750', borderRadius: 8 },
+          container: { backgroundColor: '#B00020', borderRadius: 8, opacity: 0.35 },
           text: { color: '#fff', fontWeight: '900' },
         },
       };
-    }
+    });
 
     return marked;
-  }, [blockedDaysSet, checkoutMinTimeMap, checkIn, checkOut]);
+  }, [checkoutMinTimeMap, checkIn, checkOut, fullyBookedDaysSet]);
+
 
   // web helpers
   const webSelected = (s: string) => parseYYYYMMDD(s);
 
-  // web set date handlers with disable rule
+  // web set date handlers (no disable rule now)
   const setCheckInWeb = (d: Date | null) => {
     if (!d) return setCheckIn('');
     const picked = formatDateYYYYMMDD(d);
-    if (blockedDaysSet.has(picked)) {
-      showUiError('This date is already booked (Approved). Please select another date.');
-      return;
+
+    if (fullyBookedDaysSet.has(picked)) {
+    showUiError('This date is fully booked. Please select another date.');
+    return;
     }
+
+
     setCheckIn(picked);
 
-    // auto checkOut next day
     if (!checkOut || checkOut <= picked) {
       const next = addDays(d, 1);
       const nextStr = formatDateYYYYMMDD(next);
@@ -769,31 +854,44 @@ export default function Bookings() {
     // reset rooms selection when changing dates
     setSelectedRoomQty({});
     setGuestsByRoom({});
+    setAvailability([]);
   };
 
   const setCheckOutWeb = (d: Date | null) => {
     if (!d) return setCheckOut('');
     const picked = formatDateYYYYMMDD(d);
+
+    if (fullyBookedDaysSet.has(picked)) {
+    showUiError('This date is fully booked. Please select another date.');
+    return;
+    }
+
+
     if (checkIn && picked <= checkIn) {
       showUiError('Check-out must be after check-in.');
       return;
     }
-    if (blockedDaysSet.has(picked)) {
-      showUiError('This date is already booked (Approved). Please select another date.');
-      return;
-    }
-
-    // full overlap check
-    const time = bookingTime || '10:00';
-    if (checkIn && overlapsApproved(checkIn, picked, time, blocked)) {
-      showUiError('This stay overlaps an approved booking. Please change dates/time.');
-      return;
-    }
-
     setCheckOut(picked);
+
     setSelectedRoomQty({});
     setGuestsByRoom({});
+    setAvailability([]);
   };
+
+    
+  // For react-datepicker (web) excludeDates must be Date[]
+  const webExcludeDates = useMemo(() => {
+    const out: Date[] = [];
+    const today = new Date();
+    for (let i = 0; i < 365; i++) {
+      const d = addDays(today, i);
+      const ds = formatDateYYYYMMDD(d);
+      if (fullyBookedDaysSet.has(ds)) out.push(d);
+    }
+    return out;
+  }, [fullyBookedDaysSet]);
+
+  const showAvailabilityHint = !!(checkIn && checkOut && bookingTime);
 
   return (
     <LinearGradient colors={['#020038', '#05004A', '#020038']} style={{ flex: 1 }}>
@@ -819,11 +917,10 @@ export default function Bookings() {
           {(loadingBlocked && (
             <View style={styles.loadingRow}>
               <ActivityIndicator color="#fff" />
-              <Text style={styles.loadingRowText}>Loading availability...</Text>
+              <Text style={styles.loadingRowText}>Loading...</Text>
             </View>
           )) || null}
 
-          {/* Error banner */}
           {uiError ? (
             <View style={styles.errorBanner}>
               <Ionicons name="alert-circle" size={18} color="#fff" />
@@ -831,9 +928,7 @@ export default function Bookings() {
             </View>
           ) : null}
 
-          {/* ✅ ORDER: Dates -> Time -> Rooms */}
-
-          {/* Check-in Date */}
+          {/* Dates */}
           <Label text="Check-in Date" required />
           {Platform.OS === 'web' ? (
             WebDatePicker ? (
@@ -841,9 +936,9 @@ export default function Bookings() {
                 selected={webSelected(checkIn)}
                 onChange={setCheckInWeb}
                 minDate={new Date()}
+                excludeDates={webExcludeDates}
                 dateFormat="yyyy-MM-dd"
                 placeholderText="Select a date"
-                excludeDates={webExcludeDates}
                 customInput={<input style={webInputStyle} />}
               />
             ) : (
@@ -859,7 +954,6 @@ export default function Bookings() {
             </TouchableOpacity>
           )}
 
-          {/* Check-out Date */}
           <Label text="Check-out Date" required />
           {Platform.OS === 'web' ? (
             WebDatePicker ? (
@@ -875,9 +969,9 @@ export default function Bookings() {
                       })()
                     : new Date()
                 }
+                excludeDates={webExcludeDates}
                 dateFormat="yyyy-MM-dd"
                 placeholderText="Select a date"
-                excludeDates={webExcludeDates}
                 customInput={<input style={webInputStyle} />}
               />
             ) : (
@@ -911,14 +1005,13 @@ export default function Bookings() {
                 }
                 onChange={(d: Date | null) => {
                   const nextTime = d ? formatTimeHHMM(d) : '';
-                  if (checkIn && !validateMinTimeRule(checkIn, nextTime || '10:00')) return;
-
-                  const time = nextTime || '10:00';
-                  if (checkIn && checkOut && overlapsApproved(checkIn, checkOut, time, blocked)) {
-                    showUiError('Selected date/time overlaps an approved booking. Please select another.');
-                    return;
-                  }
+                  if (checkIn && nextTime && !validateMinTimeRule(checkIn, nextTime || '10:00')) return;
                   setBookingTime(nextTime);
+
+                  // reset selection when time changes (safer)
+                  setSelectedRoomQty({});
+                  setGuestsByRoom({});
+                  setAvailability([]);
                 }}
                 showTimeSelect
                 showTimeSelectOnly
@@ -941,7 +1034,16 @@ export default function Bookings() {
             </TouchableOpacity>
           )}
 
-          {/* Room dropdown */}
+          {showAvailabilityHint && (
+            <View style={styles.loadingRow}>
+              {loadingAvailability ? <ActivityIndicator color="#fff" /> : <Ionicons name="information-circle" size={18} color="#fff" />}
+              <Text style={styles.loadingRowText}>
+                {loadingAvailability ? 'Checking available rooms...' : 'Showing room availability for selected dates/time.'}
+              </Text>
+            </View>
+          )}
+
+          {/* Rooms */}
           <Label text="Room Types" required />
           {loadingRooms ? (
             <ActivityIndicator color="#fff" />
@@ -971,28 +1073,38 @@ export default function Bookings() {
                 <View style={styles.dropdownPanel}>
                   {rooms
                     .filter((r) => !selectedRoomQty[r.room_Id])
-                    .map((r) => (
-                      <TouchableOpacity
-                        key={r.room_Id}
-                        style={styles.dropdownItem}
-                        onPress={() => addRoomType(r.room_Id)}
-                        activeOpacity={0.9}
-                      >
-                        <View style={styles.dropdownItemTop}>
-                          <Text style={styles.dropdownItemTitle}>Room {r.room_Name}</Text>
-                          <View style={styles.smallPill}>
-                            <Text style={styles.smallPillText}>{r.room_Count}</Text>
+                    .filter((r) => getRemainingForRoom(r) > 0) // ✅ show only available
+                    .map((r) => {
+                      const rem = getRemainingForRoom(r);
+                      return (
+                        <TouchableOpacity
+                          key={r.room_Id}
+                          style={styles.dropdownItem}
+                          onPress={() => addRoomType(r.room_Id)}
+                          activeOpacity={0.9}
+                        >
+                          <View style={styles.dropdownItemTop}>
+                            <Text style={styles.dropdownItemTitle}>Room {r.room_Name}</Text>
+                            <View style={styles.smallPill}>
+                              <Text style={styles.smallPillText}>{rem}</Text>
+                            </View>
                           </View>
-                        </View>
 
-                        <Text style={styles.dropdownItemSub}>
-                          Total {r.room_Count} • Max/room {r.max_Persons} • Rs {r.price_per_person}/person
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                          <Text style={styles.dropdownItemSub}>
+                            Remaining {rem} • Max/room {r.max_Persons} • Rs {r.price_per_person}/person
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
 
-                  {rooms.filter((r) => !selectedRoomQty[r.room_Id]).length === 0 && (
-                    <Text style={styles.hint}>All room types are already added.</Text>
+                  {rooms
+                    .filter((r) => !selectedRoomQty[r.room_Id])
+                    .filter((r) => getRemainingForRoom(r) > 0).length === 0 && (
+                    <Text style={styles.hint}>
+                      {showAvailabilityHint
+                        ? 'No available room types for selected dates/time.'
+                        : 'All room types are already added (or select dates/time first).'}
+                    </Text>
                   )}
                 </View>
               )}
@@ -1000,14 +1112,16 @@ export default function Bookings() {
               {selectedRoomsList.length > 0 && (
                 <View style={{ marginTop: 12, gap: 10 }}>
                   {selectedRoomsList.map(({ room, qty }) => {
+                    const maxAllowed = getRemainingForRoom(room);
                     const cap = qty * room.max_Persons;
+
                     return (
                       <View key={room.room_Id} style={styles.selectedRoomRow}>
                         <View style={styles.selectedRoomHeader}>
                           <View style={{ flex: 1 }}>
                             <Text style={styles.selectedRoomTitle}>Room {room.room_Name}</Text>
                             <Text style={styles.selectedRoomSub}>
-                              Total {room.room_Count} • Max/room {room.max_Persons} • Rs {room.price_per_person}/person
+                              Remaining {maxAllowed} • Max/room {room.max_Persons} • Rs {room.price_per_person}/person
                             </Text>
                           </View>
 
@@ -1025,7 +1139,12 @@ export default function Bookings() {
                               <Text style={styles.stepCountText}>{qty}</Text>
                             </View>
 
-                            <TouchableOpacity style={styles.stepBtn} onPress={() => incQty(room)} activeOpacity={0.85}>
+                            <TouchableOpacity
+                              style={[styles.stepBtn, qty >= maxAllowed && { opacity: 0.6 }]}
+                              onPress={() => incQty(room)}
+                              activeOpacity={0.85}
+                              disabled={qty >= maxAllowed}
+                            >
                               <Ionicons name="add" size={18} color={NAVY} />
                             </TouchableOpacity>
                           </View>
@@ -1116,84 +1235,54 @@ export default function Bookings() {
           </View>
 
           {/* Buttons */}
-          
-            <Pressable
-  onPress={submitBookingPayLater}
-  disabled={submitting}
-  style={({ pressed, hovered }) => [
-    styles.secondaryBtn, // default = Continue to Payment style
-    (pressed || hovered) && styles.primaryBtn, // active = yellow
-    submitting && { opacity: 0.7 },
-  ]}
->
-  {({ pressed, hovered }) => {
-    const active = pressed || hovered;
+          <Pressable
+            onPress={submitBookingPayLater}
+            disabled={submitting}
+            style={({ pressed, hovered }) => [
+              styles.secondaryBtn,
+              (pressed || hovered) && styles.primaryBtn,
+              submitting && { opacity: 0.7 },
+            ]}
+          >
+            {({ pressed, hovered }) => {
+              const active = pressed || hovered;
 
-    return submitting ? (
-      <>
-        <ActivityIndicator color={active ? NAVY : YELLOW} />
-        <Text
-          style={[
-            styles.secondaryBtnText,
-            active && styles.primaryBtnText,
-          ]}
-        >
-          Submitting...
-        </Text>
-      </>
-    ) : (
-      <>
-        <Ionicons
-          name="checkmark-circle-outline"
-          size={18}
-          color={active ? NAVY : YELLOW}
-        />
-        <Text
-          style={[
-            styles.secondaryBtnText,
-            active && styles.primaryBtnText,
-          ]}
-        >
-          Submit Booking (Pay Later)
-        </Text>
-      </>
-    );
-  }}
-</Pressable>
+              return submitting ? (
+                <>
+                  <ActivityIndicator color={active ? NAVY : YELLOW} />
+                  <Text style={[styles.secondaryBtnText, active && styles.primaryBtnText]}>Submitting...</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle-outline" size={18} color={active ? NAVY : YELLOW} />
+                  <Text style={[styles.secondaryBtnText, active && styles.primaryBtnText]}>
+                    Submit Booking (Pay Later)
+                  </Text>
+                </>
+              );
+            }}
+          </Pressable>
 
+          <Pressable
+            onPress={continueToPaymentNow}
+            disabled={submitting}
+            style={({ pressed, hovered }) => [
+              styles.secondaryBtn,
+              (pressed || hovered) && styles.primaryBtn,
+              submitting && { opacity: 0.7 },
+            ]}
+          >
+            {({ pressed, hovered }) => {
+              const active = pressed || hovered;
 
-  <Pressable
-    onPress={continueToPaymentNow}
-    disabled={submitting}
-    style={({ pressed, hovered }) => [
-    styles.secondaryBtn, // default style
-    (pressed || hovered) && styles.primaryBtn, // active = yellow
-    submitting && { opacity: 0.7 },
-  ]}
->
-  {({ pressed, hovered }) => {
-    const active = pressed || hovered;
-
-    return (
-      <>
-        <Ionicons
-          name="card-outline"
-          size={18}
-          color={active ? NAVY : YELLOW}
-        />
-        <Text
-          style={[
-            styles.secondaryBtnText,
-            active && styles.primaryBtnText,
-          ]}
-        >
-          Continue to Payment
-        </Text>
-      </>
-    );
-  }}
-</Pressable>
-
+              return (
+                <>
+                  <Ionicons name="card-outline" size={18} color={active ? NAVY : YELLOW} />
+                  <Text style={[styles.secondaryBtnText, active && styles.primaryBtnText]}>Continue to Payment</Text>
+                </>
+              );
+            }}
+          </Pressable>
 
           {!!minTimeForSelectedCheckIn && (
             <Text style={styles.smallHint}>
@@ -1202,7 +1291,7 @@ export default function Bookings() {
           )}
         </View>
 
-        {/* ✅ Center popup */}
+        {/* Center popup */}
         <Modal visible={popupVisible} transparent animationType="fade" onRequestClose={() => setPopupVisible(false)}>
           <View style={styles.popupOverlay}>
             <View style={styles.popupCard}>
@@ -1226,7 +1315,7 @@ export default function Bookings() {
           </View>
         </Modal>
 
-        {/* ✅ Picker modal (Mobile uses Calendar for dates; DateTimePicker for time) */}
+        {/* Picker modal (Mobile uses Calendar for dates; DateTimePicker for time) */}
         {Platform.OS !== 'web' && (
           <Modal visible={pickerOpen} transparent animationType="fade">
             <View style={styles.modalOverlay}>
@@ -1248,25 +1337,23 @@ export default function Bookings() {
                       const picked = String(day.dateString || '').slice(0, 10);
                       if (!picked) return;
 
-                      // blocked
-                      if (blockedDaysSet.has(picked)) {
-                        showUiError('This date is already booked (Approved). Please select another date.');
-                        return;
+                      if (fullyBookedDaysSet.has(picked)) {
+                      showUiError('This date is fully booked. Please select another date.');
+                      return;
                       }
 
                       if (pickerTarget === 'checkIn') {
                         setCheckIn(picked);
 
-                        // auto checkout next day
                         if (!checkOut || checkOut <= picked) {
                           const d = parseYYYYMMDD(picked) || new Date();
                           const next = addDays(d, 1);
                           setCheckOut(formatDateYYYYMMDD(next));
                         }
 
-                        // reset room selection on date change
                         setSelectedRoomQty({});
                         setGuestsByRoom({});
+                        setAvailability([]);
                         setPickerOpen(false);
                         return;
                       }
@@ -1276,17 +1363,11 @@ export default function Bookings() {
                           showUiError('Check-out must be after check-in.');
                           return;
                         }
-
-                        // overlap check
-                        const time = bookingTime || '10:00';
-                        if (checkIn && overlapsApproved(checkIn, picked, time, blocked)) {
-                          showUiError('This stay overlaps an approved booking. Please change dates/time.');
-                          return;
-                        }
-
                         setCheckOut(picked);
+
                         setSelectedRoomQty({});
                         setGuestsByRoom({});
+                        setAvailability([]);
                         setPickerOpen(false);
                         return;
                       }
@@ -1416,6 +1497,7 @@ const styles = StyleSheet.create({
   loadingRowText: {
     color: '#fff',
     fontWeight: '800',
+    flex: 1,
   },
 
   errorBanner: {
