@@ -42,7 +42,7 @@ function todayYYYYMMDD() {
 }
 
 // =====================================================
-// ✅ NEW: Manager Notifications
+// ✅ Manager Notifications
 // GET /bookings/manager-notifications?userId=123
 // Returns APPROVED bookings for manager's circuit
 // =====================================================
@@ -69,25 +69,34 @@ router.get('/manager-notifications', async (req, res) => {
     const circuit_id = circuitRes.recordset[0]?.circuit_id;
 
     if (!circuit_id) {
-      return res.json({ bookings: [] }); // no circuit assigned -> no notifications
+      return res.json({ bookings: [] });
     }
 
     // 2) Get approved bookings for that circuit
+    // NOTE: booking belongs to circuit if ANY BookingRooms line is in that circuit
     const result = await pool
       .request()
       .input('circuit_id', sql.Int, circuit_id)
       .query(`
+        ;WITH Lines AS (
+          SELECT
+            br.booking_id,
+            br.room_id,
+            br.need_room_count,
+            br.guest_count,
+            r.room_Name,
+            r.circuit_Id
+          FROM BookingRooms br
+          LEFT JOIN CircuitRooms r ON r.room_Id = br.room_id
+          WHERE r.circuit_Id = @circuit_id
+        )
         SELECT
           b.booking_id,
           b.user_id,
 
-          -- user name (fallback safe)
           COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(u.first_name, ' ', u.last_name))), ''), u.email, CONCAT('User ', b.user_id)) AS user_name,
 
-          b.room_id,
-          r.room_Name,
-          r.circuit_Id,
-
+          c.circuit_Id,
           c.circuit_Name,
           c.city,
           c.street,
@@ -96,23 +105,27 @@ router.get('/manager-notifications', async (req, res) => {
           b.check_in_date,
           b.check_out_date,
           b.booking_time,
-
-          b.guest_count,
-          b.need_room_count,
           b.purpose,
           b.status,
-
           b.created_date,
           b.updated_date,
-          b.approved_date
+          b.approved_date,
 
+          -- room summary for UI
+          STRING_AGG(CONCAT(l.room_Name, ' × ', l.need_room_count), ' + ') WITHIN GROUP (ORDER BY l.room_Name) AS rooms_summary,
+          SUM(l.need_room_count) AS total_rooms,
+          SUM(l.guest_count) AS total_guests
         FROM Bookings b
         LEFT JOIN Users u ON u.user_id = b.user_id
-        LEFT JOIN CircuitRooms r ON r.room_Id = b.room_id
-        LEFT JOIN Circuits c ON c.circuit_Id = r.circuit_Id
-
-        WHERE r.circuit_Id = @circuit_id
-          AND b.status = 'Approved'
+        INNER JOIN Lines l ON l.booking_id = b.booking_id
+        LEFT JOIN Circuits c ON c.circuit_Id = l.circuit_Id
+        WHERE b.status = 'Approved'
+        GROUP BY
+          b.booking_id, b.user_id,
+          u.first_name, u.last_name, u.email,
+          c.circuit_Id, c.circuit_Name, c.city, c.street,
+          b.booking_date, b.check_in_date, b.check_out_date, b.booking_time,
+          b.purpose, b.status, b.created_date, b.updated_date, b.approved_date
         ORDER BY ISNULL(b.approved_date, b.updated_date) DESC, b.booking_id DESC;
       `);
 
@@ -126,7 +139,7 @@ router.get('/manager-notifications', async (req, res) => {
 
 // =====================================================
 // ✅ GET /bookings/unavailable?circuitId=123
-// (kept as-is, returns approved bookings ranges for circuit)
+// Returns approved booking ranges for circuit (ANY room line inside circuit)
 // =====================================================
 router.get('/unavailable', async (req, res) => {
   try {
@@ -140,15 +153,16 @@ router.get('/unavailable', async (req, res) => {
     const result = await pool.request()
       .input('circuit_Id', sql.Int, circuitId)
       .query(`
-        SELECT
+        SELECT DISTINCT
           b.booking_id,
-          r.circuit_Id AS circuit_id,
+          @circuit_Id AS circuit_id,
           b.check_in_date,
           b.check_out_date,
           b.booking_time,
           b.status
         FROM Bookings b
-        LEFT JOIN CircuitRooms r ON r.room_Id = b.room_id
+        INNER JOIN BookingRooms br ON br.booking_id = b.booking_id
+        INNER JOIN CircuitRooms r ON r.room_Id = br.room_id
         WHERE
           r.circuit_Id = @circuit_Id
           AND b.status = 'Approved'
@@ -168,6 +182,7 @@ router.get('/unavailable', async (req, res) => {
 // =====================================================
 // ✅ NEW: GET /bookings/availability?circuitId=123&checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD&time=HH:mm
 // Returns remaining rooms per room type based on APPROVED overlaps
+// (Uses BookingRooms)
 // =====================================================
 router.get('/availability', async (req, res) => {
   try {
@@ -199,25 +214,25 @@ router.get('/availability', async (req, res) => {
           FROM CircuitRooms
           WHERE circuit_Id = @circuit_Id AND is_active = 1
         ),
-        Approved AS (
-  SELECT
-    b.room_id,
-    b.need_room_count,
-    DATEADD(
-      MINUTE,
-      DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
-      CAST(CAST(b.check_in_date AS date) AS datetime)
-    ) AS OldStart,
-    DATEADD(
-      MINUTE,
-      DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
-      CAST(CAST(b.check_out_date AS date) AS datetime)
-    ) AS OldEnd
-  FROM Bookings b
-  INNER JOIN Rooms r ON r.room_Id = b.room_id   -- ✅ restrict to this circuit rooms only
-  WHERE b.status = 'Approved'
-),
-
+        ApprovedLines AS (
+          SELECT
+            br.room_id,
+            br.need_room_count,
+            DATEADD(
+              MINUTE,
+              DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
+              CAST(CAST(b.check_in_date AS date) AS datetime)
+            ) AS OldStart,
+            DATEADD(
+              MINUTE,
+              DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
+              CAST(CAST(b.check_out_date AS date) AS datetime)
+            ) AS OldEnd
+          FROM Bookings b
+          INNER JOIN BookingRooms br ON br.booking_id = b.booking_id
+          INNER JOIN Rooms r ON r.room_Id = br.room_id
+          WHERE b.status = 'Approved'
+        ),
         NewRange AS (
           SELECT
             DATEADD(
@@ -233,7 +248,7 @@ router.get('/availability', async (req, res) => {
         ),
         Overlapping AS (
           SELECT a.room_id, a.need_room_count
-          FROM Approved a
+          FROM ApprovedLines a
           CROSS JOIN NewRange n
           WHERE a.OldStart < n.NewEnd
             AND a.OldEnd > n.NewStart
@@ -262,7 +277,7 @@ router.get('/availability', async (req, res) => {
 
 // =====================================================
 // ✅ NEW: GET /bookings/fully-booked-days?circuitId=123&from=YYYY-MM-DD&to=YYYY-MM-DD&time=HH:mm
-// Returns days where ALL room types have remaining <= 0 for a 1-night stay starting that day.
+// Uses BookingRooms
 // =====================================================
 router.get('/fully-booked-days', async (req, res) => {
   try {
@@ -294,7 +309,6 @@ router.get('/fully-booked-days', async (req, res) => {
 
     const activeRoomsCount = Number(roomCountRes.recordset?.[0]?.cnt || 0);
     if (activeRoomsCount <= 0) {
-      // Return all days in [from..to]
       const daysRes = await pool.request()
         .input('fromDate', sql.Date, from)
         .input('toDate', sql.Date, to)
@@ -315,7 +329,6 @@ router.get('/fully-booked-days', async (req, res) => {
       return res.json({ days: daysRes.recordset.map((x) => x.day) });
     }
 
-    // Normal: compute days where NO room has remaining > 0 for [day..day+1) at the given time
     const result = await pool.request()
       .input('circuit_Id', sql.Int, circuitId)
       .input('fromDate', sql.Date, from)
@@ -334,10 +347,10 @@ router.get('/fully-booked-days', async (req, res) => {
           FROM CircuitRooms
           WHERE circuit_Id = @circuit_Id AND is_active = 1
         ),
-        Approved AS (
+        ApprovedLines AS (
           SELECT
-            b.room_id,
-            b.need_room_count,
+            br.room_id,
+            br.need_room_count,
             DATEADD(
               MINUTE,
               DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
@@ -349,7 +362,8 @@ router.get('/fully-booked-days', async (req, res) => {
               CAST(CAST(b.check_out_date AS date) AS datetime)
             ) AS OldEnd
           FROM Bookings b
-          INNER JOIN Rooms r ON r.room_Id = b.room_id
+          INNER JOIN BookingRooms br ON br.booking_id = b.booking_id
+          INNER JOIN Rooms r ON r.room_Id = br.room_id
           WHERE b.status = 'Approved'
         ),
         DayRanges AS (
@@ -372,7 +386,7 @@ router.get('/fully-booked-days', async (req, res) => {
             dr.day,
             a.room_id,
             a.need_room_count
-          FROM Approved a
+          FROM ApprovedLines a
           INNER JOIN DayRanges dr
             ON a.OldStart < dr.NewEnd
            AND a.OldEnd > dr.NewStart
@@ -412,9 +426,8 @@ router.get('/fully-booked-days', async (req, res) => {
   }
 });
 
-
 // =====================================================
-// POST /bookings
+// POST /bookings  ✅ ONE booking + MANY rooms (BookingRooms)
 // =====================================================
 router.post('/', async (req, res) => {
   try {
@@ -436,23 +449,13 @@ router.post('/', async (req, res) => {
     }
 
     const bDate = booking_date || todayYYYYMMDD();
-    if (!isValidDateYYYYMMDD(bDate)) {
-      return res.status(400).json({ message: 'Invalid booking_date format. Use YYYY-MM-DD.' });
-    }
-    if (!isValidDateYYYYMMDD(check_in_date)) {
-      return res.status(400).json({ message: 'Invalid check_in_date format. Use YYYY-MM-DD.' });
-    }
-    if (!isValidDateYYYYMMDD(check_out_date)) {
-      return res.status(400).json({ message: 'Invalid check_out_date format. Use YYYY-MM-DD.' });
-    }
-    if (check_out_date <= check_in_date) {
-      return res.status(400).json({ message: 'check_out_date must be after check_in_date' });
-    }
+    if (!isValidDateYYYYMMDD(bDate)) return res.status(400).json({ message: 'Invalid booking_date format. Use YYYY-MM-DD.' });
+    if (!isValidDateYYYYMMDD(check_in_date)) return res.status(400).json({ message: 'Invalid check_in_date format. Use YYYY-MM-DD.' });
+    if (!isValidDateYYYYMMDD(check_out_date)) return res.status(400).json({ message: 'Invalid check_out_date format. Use YYYY-MM-DD.' });
+    if (check_out_date <= check_in_date) return res.status(400).json({ message: 'check_out_date must be after check_in_date' });
 
     const list = Array.isArray(items) ? items : [];
-    if (list.length === 0) {
-      return res.status(400).json({ message: 'items[] is required (at least 1 room type)' });
-    }
+    if (list.length === 0) return res.status(400).json({ message: 'items[] is required (at least 1 room type)' });
 
     const safeItems = list.map((x) => ({
       room_id: Number(x.room_id),
@@ -461,18 +464,12 @@ router.post('/', async (req, res) => {
     }));
 
     for (const it of safeItems) {
-      if (!Number.isInteger(it.room_id) || it.room_id <= 0) {
-        return res.status(400).json({ message: 'Each item must have a valid room_id' });
-      }
-      if (!Number.isInteger(it.need_room_count) || it.need_room_count <= 0) {
-        return res.status(400).json({ message: 'Each item must have need_room_count > 0' });
-      }
-      if (!Number.isInteger(it.guest_count) || it.guest_count < 0) {
-        return res.status(400).json({ message: 'Each item must have guest_count >= 0' });
-      }
+      if (!Number.isInteger(it.room_id) || it.room_id <= 0) return res.status(400).json({ message: 'Each item must have a valid room_id' });
+      if (!Number.isInteger(it.need_room_count) || it.need_room_count <= 0) return res.status(400).json({ message: 'Each item must have need_room_count > 0' });
+      if (!Number.isInteger(it.guest_count) || it.guest_count < 0) return res.status(400).json({ message: 'Each item must have guest_count >= 0' });
     }
 
-    const timeHHMM = normalizeTimeHHMM(booking_time);
+    const timeHHMM = normalizeTimeHHMM(booking_time);      // keep null if empty
     const timeOrDefault = timeHHMM || '10:00';
 
     const pool = await getPool();
@@ -481,7 +478,7 @@ router.post('/', async (req, res) => {
 
     try {
       // -------------------------------------------------------
-      // ✅ 1) Determine circuit_Id safely (from body or room)
+      // ✅ 1) Determine circuit_Id safely (from body or first room)
       // -------------------------------------------------------
       let circuit_Id = Number(circuit_id_from_body);
       if (!Number.isInteger(circuit_Id) || circuit_Id <= 0) {
@@ -502,7 +499,8 @@ router.post('/', async (req, res) => {
       }
 
       // -------------------------------------------------------
-      // ✅ 2) Enforce availability PER ROOM TYPE (Approved bookings only)
+      // ✅ 2) Validate availability PER ROOM TYPE (Approved overlaps)
+      //    NOTE: use BookingRooms + Bookings for overlaps
       // -------------------------------------------------------
       for (const it of safeItems) {
         const availabilityCheck = await new sql.Request(tx)
@@ -512,14 +510,13 @@ router.post('/', async (req, res) => {
           .input('newTime', sql.VarChar(5), timeOrDefault)
           .query(`
             ;WITH RoomInfo AS (
-              SELECT room_Id, room_Count, circuit_Id
+              SELECT room_Id, room_Count, max_Persons, is_active, circuit_Id
               FROM CircuitRooms
               WHERE room_Id = @room_id AND is_active = 1
             ),
             Approved AS (
               SELECT
-                b.booking_id,
-                b.need_room_count,
+                br.need_room_count,
                 DATEADD(
                   MINUTE,
                   DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
@@ -530,9 +527,10 @@ router.post('/', async (req, res) => {
                   DATEDIFF(MINUTE, 0, CAST(ISNULL(b.booking_time,'10:00') AS time)),
                   CAST(CAST(b.check_out_date AS date) AS datetime)
                 ) AS OldEnd
-              FROM Bookings b
+              FROM BookingRooms br
+              INNER JOIN Bookings b ON b.booking_id = br.booking_id
               WHERE b.status = 'Approved'
-                AND b.room_id = @room_id
+                AND br.room_id = @room_id
             ),
             NewRange AS (
               SELECT
@@ -556,11 +554,12 @@ router.post('/', async (req, res) => {
             )
             SELECT
               ri.room_Count,
+              ri.max_Persons,
               ri.circuit_Id,
               ISNULL(SUM(o.need_room_count), 0) AS booked_count
             FROM RoomInfo ri
             LEFT JOIN Overlapping o ON 1=1
-            GROUP BY ri.room_Count, ri.circuit_Id;
+            GROUP BY ri.room_Count, ri.max_Persons, ri.circuit_Id;
           `);
 
         if (!availabilityCheck.recordset.length) {
@@ -573,13 +572,10 @@ router.post('/', async (req, res) => {
         const booked = Number(row.booked_count) || 0;
         const remaining = roomCount - booked;
 
-        // ensure room belongs to circuit
         const roomCircuit = Number(row.circuit_Id);
         if (Number.isInteger(roomCircuit) && roomCircuit > 0 && roomCircuit !== circuit_Id) {
           await tx.rollback();
-          return res.status(400).json({
-            message: `Room does not belong to selected circuit (room_id=${it.room_id})`,
-          });
+          return res.status(400).json({ message: `Room does not belong to selected circuit (room_id=${it.room_id})` });
         }
 
         if (it.need_room_count > remaining) {
@@ -588,42 +584,9 @@ router.post('/', async (req, res) => {
             message: `Room not available for selected dates/time. Remaining=${remaining}, requested=${it.need_room_count}`,
           });
         }
-      }
 
-      // -------------------------------------------------------
-      // ✅ 3) Validate room capacity + active + total room_count (kept same)
-      // -------------------------------------------------------
-      for (const it of safeItems) {
-        const roomCheck = await new sql.Request(tx)
-          .input('room_id', sql.Int, it.room_id)
-          .query(`
-            SELECT room_Id, room_Count, max_Persons, is_active, circuit_Id
-            FROM CircuitRooms
-            WHERE room_Id = @room_id;
-          `);
-
-        if (roomCheck.recordset.length === 0) {
-          await tx.rollback();
-          return res.status(404).json({ message: `Room not found (room_id=${it.room_id})` });
-        }
-
-        const r = roomCheck.recordset[0];
-        if (r.is_active === 0) {
-          await tx.rollback();
-          return res.status(400).json({ message: `Room is inactive (room_id=${it.room_id})` });
-        }
-
-        const available = Number(r.room_Count) || 0;
-        const maxPersons = Number(r.max_Persons) || 0;
-
-        if (it.need_room_count > available) {
-          await tx.rollback();
-          return res.status(400).json({
-            message: `Not enough rooms available for room_id=${it.room_id}. Available=${available}, requested=${it.need_room_count}`,
-          });
-        }
-
-        // max_Persons is per room
+        // capacity check
+        const maxPersons = Number(row.max_Persons) || 0;
         const cap = it.need_room_count * maxPersons;
         if (it.guest_count > cap) {
           await tx.rollback();
@@ -634,62 +597,65 @@ router.post('/', async (req, res) => {
       }
 
       // -------------------------------------------------------
-      // ✅ 4) Insert bookings (Pending)
+      // ✅ 3) Insert ONE booking row
       // -------------------------------------------------------
-      const insertedIds = [];
+      const bookingInsert = await new sql.Request(tx)
+        .input('user_id', sql.Int, user_id)
+        .input('booking_date', sql.Date, bDate)
+        .input('check_in_date', sql.Date, check_in_date)
+        .input('check_out_date', sql.Date, check_out_date)
+        .input('booking_time', sql.VarChar(5), timeHHMM) // keep null if empty
+        .input('purpose', sql.NVarChar(500), purpose || null)
+        .input('status', sql.NVarChar(50), 'Pending')
+        .query(`
+          INSERT INTO Bookings (
+            user_id,
+            booking_date,
+            check_in_date,
+            check_out_date,
+            booking_time,
+            purpose,
+            status,
+            created_date,
+            updated_date
+          )
+          OUTPUT INSERTED.booking_id
+          VALUES (
+            @user_id,
+            @booking_date,
+            @check_in_date,
+            @check_out_date,
+            @booking_time,
+            @purpose,
+            @status,
+            GETDATE(),
+            NULL
+          );
+        `);
 
+      const booking_id = bookingInsert.recordset[0].booking_id;
+
+      // -------------------------------------------------------
+      // ✅ 4) Insert MANY booking rooms
+      // -------------------------------------------------------
       for (const it of safeItems) {
-        const insertResult = await new sql.Request(tx)
-          .input('user_id', sql.Int, user_id)
+        await new sql.Request(tx)
+          .input('booking_id', sql.Int, booking_id)
           .input('room_id', sql.Int, it.room_id)
-          .input('booking_date', sql.Date, bDate)
-          .input('check_in_date', sql.Date, check_in_date)
-          .input('check_out_date', sql.Date, check_out_date)
-          .input('booking_time', sql.VarChar(5), timeHHMM) // keep null if empty
-          .input('guest_count', sql.Int, it.guest_count)
-          .input('purpose', sql.NVarChar(255), purpose || null)
-          .input('status', sql.NVarChar(50), 'Pending')
           .input('need_room_count', sql.Int, it.need_room_count)
+          .input('guest_count', sql.Int, it.guest_count)
           .query(`
-            INSERT INTO Bookings (
-              user_id,
-              room_id,
-              booking_date,
-              check_in_date,
-              check_out_date,
-              booking_time,
-              guest_count,
-              purpose,
-              status,
-              created_date,
-              updated_date,
-              need_room_count
-            )
-            OUTPUT INSERTED.booking_id
-            VALUES (
-              @user_id,
-              @room_id,
-              @booking_date,
-              @check_in_date,
-              @check_out_date,
-              @booking_time,
-              @guest_count,
-              @purpose,
-              @status,
-              GETDATE(),
-              NULL,
-              @need_room_count
-            );
+            INSERT INTO BookingRooms (booking_id, room_id, need_room_count, guest_count, created_date)
+            VALUES (@booking_id, @room_id, @need_room_count, @guest_count, GETDATE());
           `);
-
-        insertedIds.push(insertResult.recordset[0].booking_id);
       }
 
       await tx.commit();
 
       return res.status(201).json({
         message: 'Booking request submitted (Pending)',
-        booking_ids: insertedIds,
+        booking_id,          // ✅ single id
+        booking_ids: [booking_id], // ✅ keep for old UI compatibility
       });
     } catch (err) {
       try { await tx.rollback(); } catch {}
@@ -703,7 +669,8 @@ router.post('/', async (req, res) => {
 });
 
 // =====================================================
-// GET /bookings/user/:userId
+// ✅ GET /bookings/user/:userId
+// Returns booking headers + aggregated room info + items[]
 // =====================================================
 router.get('/user/:userId', async (req, res) => {
   try {
@@ -713,19 +680,19 @@ router.get('/user/:userId', async (req, res) => {
     }
 
     const pool = await getPool();
-    const result = await pool
+
+    // 1) headers
+    const headers = await pool
       .request()
       .input('user_id', sql.Int, userId)
       .query(`
         SELECT
           b.booking_id,
           b.user_id,
-          b.room_id,
           b.booking_date,
           b.check_in_date,
           b.check_out_date,
           b.booking_time,
-          b.guest_count,
           b.purpose,
           b.status,
           b.created_date,
@@ -735,24 +702,75 @@ router.get('/user/:userId', async (req, res) => {
           b.rejected_by,
           b.rejected_date,
           b.rejection_reason,
-          b.need_room_count,
 
-          r.room_Name,
-          r.max_Persons,
-          r.price_per_person,
-          r.circuit_Id,
-
+          -- circuit info (best effort: first line)
           c.circuit_Name,
           c.city,
-          c.street
+          c.street,
+
+          -- room summary
+          x.rooms_summary,
+          x.total_rooms,
+          x.total_guests,
+          x.estimated_total
         FROM Bookings b
-        LEFT JOIN CircuitRooms r ON r.room_Id = b.room_id
-        LEFT JOIN Circuits c ON c.circuit_Id = r.circuit_Id
+        OUTER APPLY (
+          SELECT TOP 1 r.circuit_Id
+          FROM BookingRooms br
+          LEFT JOIN CircuitRooms r ON r.room_Id = br.room_id
+          WHERE br.booking_id = b.booking_id
+          ORDER BY br.booking_room_id ASC
+        ) firstC
+        LEFT JOIN Circuits c ON c.circuit_Id = firstC.circuit_Id
+        OUTER APPLY (
+          SELECT
+            STRING_AGG(CONCAT(r.room_Name, ' × ', br.need_room_count), ' + ') WITHIN GROUP (ORDER BY r.room_Name) AS rooms_summary,
+            SUM(br.need_room_count) AS total_rooms,
+            SUM(br.guest_count) AS total_guests,
+            CAST(SUM(CAST(br.guest_count AS decimal(10,2)) * CAST(r.price_per_person AS decimal(10,2))) AS decimal(10,2)) AS estimated_total
+          FROM BookingRooms br
+          LEFT JOIN CircuitRooms r ON r.room_Id = br.room_id
+          WHERE br.booking_id = b.booking_id
+        ) x
         WHERE b.user_id = @user_id
         ORDER BY b.created_date DESC;
       `);
 
-    return res.json({ bookings: result.recordset });
+    const bookingIds = headers.recordset.map((h) => h.booking_id);
+    let itemsMap = {};
+    if (bookingIds.length) {
+      const lines = await pool.request().query(`
+        SELECT
+          br.booking_room_id,
+          br.booking_id,
+          br.room_id,
+          br.need_room_count,
+          br.guest_count,
+          br.created_date,
+          r.room_Name,
+          r.max_Persons,
+          r.price_per_person,
+          r.circuit_Id
+        FROM BookingRooms br
+        LEFT JOIN CircuitRooms r ON r.room_Id = br.room_id
+        WHERE br.booking_id IN (${bookingIds.join(',')})
+        ORDER BY br.booking_id DESC, br.booking_room_id ASC;
+      `);
+
+      itemsMap = {};
+      for (const row of lines.recordset) {
+        const k = String(row.booking_id);
+        if (!itemsMap[k]) itemsMap[k] = [];
+        itemsMap[k].push(row);
+      }
+    }
+
+    const bookings = headers.recordset.map((h) => ({
+      ...h,
+      items: itemsMap[String(h.booking_id)] || [],
+    }));
+
+    return res.json({ bookings });
   } catch (err) {
     console.error('Get user bookings error >>>', err);
     return res.status(500).json({ message: 'Server error', error: err.message });
@@ -760,8 +778,10 @@ router.get('/user/:userId', async (req, res) => {
 });
 
 // =====================================================
-// PATCH /bookings/batch (user edits pending bookings)
-// (kept as-is)
+// ✅ PATCH /bookings/batch (user edits pending booking)
+// Kept same endpoint, BUT now expects ONE booking_id (first in array)
+// - updates header fields
+// - replaces BookingRooms with provided items (if items provided)
 // =====================================================
 router.patch('/batch', async (req, res) => {
   try {
@@ -782,6 +802,8 @@ router.patch('/batch', async (req, res) => {
       return res.status(400).json({ message: 'booking_ids[] required' });
     }
 
+    const bookingId = ids[0]; // ✅ single booking in new model
+
     if (check_in_date && !isValidDateYYYYMMDD(check_in_date)) {
       return res.status(400).json({ message: 'Invalid check_in_date format. Use YYYY-MM-DD.' });
     }
@@ -793,78 +815,96 @@ router.patch('/batch', async (req, res) => {
     }
 
     const timeHHMM = normalizeTimeHHMM(booking_time);
-    const safeItems = Array.isArray(items) ? items : [];
+    const safeItems = Array.isArray(items) ? items : null; // null means "do not change lines"
+
+    // validate items if provided
+    if (safeItems) {
+      if (safeItems.length === 0) {
+        return res.status(400).json({ message: 'items[] cannot be empty when provided' });
+      }
+      for (const x of safeItems) {
+        const room_id = Number(x.room_id);
+        const need_room_count = Number(x.need_room_count);
+        const guest_count = Number(x.guest_count);
+
+        if (!Number.isInteger(room_id) || room_id <= 0) {
+          return res.status(400).json({ message: 'Each item must have a valid room_id' });
+        }
+        if (!Number.isInteger(need_room_count) || need_room_count <= 0) {
+          return res.status(400).json({ message: 'Each item must have need_room_count > 0' });
+        }
+        if (!Number.isInteger(guest_count) || guest_count < 0) {
+          return res.status(400).json({ message: 'Each item must have guest_count >= 0' });
+        }
+      }
+    }
 
     const pool = await getPool();
     const tx = new sql.Transaction(pool);
     await tx.begin();
 
     try {
-      for (const id of ids) {
-        const check = await new sql.Request(tx)
-          .input('booking_id', sql.Int, id)
-          .input('user_id', sql.Int, user_id)
-          .query(`
-            SELECT booking_id, status
-            FROM Bookings
-            WHERE booking_id = @booking_id AND user_id = @user_id;
-          `);
+      // must own booking + must be pending
+      const check = await new sql.Request(tx)
+        .input('booking_id', sql.Int, bookingId)
+        .input('user_id', sql.Int, user_id)
+        .query(`
+          SELECT booking_id, status
+          FROM Bookings
+          WHERE booking_id = @booking_id AND user_id = @user_id;
+        `);
 
-        if (check.recordset.length === 0) {
-          await tx.rollback();
-          return res.status(404).json({ message: `Booking not found (id=${id})` });
-        }
-
-        const status = String(check.recordset[0].status || '').toLowerCase();
-        if (status !== 'pending') {
-          await tx.rollback();
-          return res.status(403).json({
-            message: `Only Pending bookings can be edited (id=${id})`,
-          });
-        }
+      if (check.recordset.length === 0) {
+        await tx.rollback();
+        return res.status(404).json({ message: `Booking not found (id=${bookingId})` });
       }
 
-      for (const id of ids) {
-        const perItem = safeItems.find((x) => Number(x.booking_id) === id);
+      const status = String(check.recordset[0].status || '').toLowerCase();
+      if (status !== 'pending') {
+        await tx.rollback();
+        return res.status(403).json({
+          message: `Only Pending bookings can be edited (id=${bookingId})`,
+        });
+      }
 
-        const room_id = perItem?.room_id != null ? Number(perItem.room_id) : null;
-        const need_room_count = perItem?.need_room_count != null ? Number(perItem.need_room_count) : null;
-        const guest_count = perItem?.guest_count != null ? Number(perItem.guest_count) : null;
+      // update header (only provided fields)
+      await new sql.Request(tx)
+        .input('booking_id', sql.Int, bookingId)
+        .input('user_id', sql.Int, user_id)
+        .input('check_in_date', sql.Date, check_in_date ? check_in_date : null)
+        .input('check_out_date', sql.Date, check_out_date ? check_out_date : null)
+        .input('booking_time', sql.VarChar(5), timeHHMM)
+        .input('purpose', sql.NVarChar(500), purpose ?? null)
+        .query(`
+          UPDATE Bookings
+          SET
+            check_in_date   = COALESCE(@check_in_date, check_in_date),
+            check_out_date  = COALESCE(@check_out_date, check_out_date),
+            booking_time    = COALESCE(@booking_time, booking_time),
+            purpose         = COALESCE(@purpose, purpose),
+            updated_date    = GETDATE()
+          WHERE booking_id = @booking_id
+            AND user_id = @user_id
+            AND status = 'Pending';
+        `);
 
-        if (need_room_count != null && (!Number.isInteger(need_room_count) || need_room_count <= 0)) {
-          await tx.rollback();
-          return res.status(400).json({ message: `Invalid need_room_count for booking_id=${id}` });
-        }
-        if (guest_count != null && (!Number.isInteger(guest_count) || guest_count < 0)) {
-          await tx.rollback();
-          return res.status(400).json({ message: `Invalid guest_count for booking_id=${id}` });
-        }
-
+      // replace lines if items provided
+      if (safeItems) {
         await new sql.Request(tx)
-          .input('booking_id', sql.Int, id)
-          .input('user_id', sql.Int, user_id)
-          .input('check_in_date', sql.Date, check_in_date ? check_in_date : null)
-          .input('check_out_date', sql.Date, check_out_date ? check_out_date : null)
-          .input('booking_time', sql.VarChar(5), timeHHMM)
-          .input('purpose', sql.NVarChar(255), purpose ?? null)
-          .input('room_id', sql.Int, room_id != null ? room_id : null)
-          .input('need_room_count', sql.Int, need_room_count != null ? need_room_count : null)
-          .input('guest_count', sql.Int, guest_count != null ? guest_count : null)
-          .query(`
-            UPDATE Bookings
-            SET
-              check_in_date   = COALESCE(@check_in_date, check_in_date),
-              check_out_date  = COALESCE(@check_out_date, check_out_date),
-              booking_time    = COALESCE(@booking_time, booking_time),
-              purpose         = COALESCE(@purpose, purpose),
-              room_id         = COALESCE(@room_id, room_id),
-              need_room_count = COALESCE(@need_room_count, need_room_count),
-              guest_count     = COALESCE(@guest_count, guest_count),
-              updated_date    = GETDATE()
-            WHERE booking_id = @booking_id
-              AND user_id = @user_id
-              AND status = 'Pending';
-          `);
+          .input('booking_id', sql.Int, bookingId)
+          .query(`DELETE FROM BookingRooms WHERE booking_id = @booking_id;`);
+
+        for (const x of safeItems) {
+          await new sql.Request(tx)
+            .input('booking_id', sql.Int, bookingId)
+            .input('room_id', sql.Int, Number(x.room_id))
+            .input('need_room_count', sql.Int, Number(x.need_room_count))
+            .input('guest_count', sql.Int, Number(x.guest_count))
+            .query(`
+              INSERT INTO BookingRooms (booking_id, room_id, need_room_count, guest_count)
+              VALUES (@booking_id, @room_id, @need_room_count, @guest_count);
+            `);
+        }
       }
 
       await tx.commit();
@@ -882,6 +922,8 @@ router.patch('/batch', async (req, res) => {
 
 // =====================================================
 // ✅ ADMIN LIST: GET /bookings?status=Pending|Approved|Rejected|All
+// Returns one row per booking (not per room), includes room summary + totals
+// Keeps payment join logic unchanged (Payments keyed by booking_id)
 // =====================================================
 router.get('/', async (req, res) => {
   try {
@@ -896,16 +938,27 @@ router.get('/', async (req, res) => {
       .request()
       .input('status', sql.NVarChar(50), status)
       .query(`
+        ;WITH RoomsAgg AS (
+          SELECT
+            br.booking_id,
+            STRING_AGG(CONCAT(r.room_Name, ' × ', br.need_room_count), ' + ') WITHIN GROUP (ORDER BY r.room_Name) AS rooms_summary,
+            SUM(br.need_room_count) AS total_rooms,
+            SUM(br.guest_count) AS total_guests,
+            CAST(SUM(CAST(br.guest_count AS decimal(10,2)) * CAST(r.price_per_person AS decimal(10,2))) AS decimal(10,2)) AS estimated_total,
+            MAX(r.circuit_Id) AS circuit_Id -- best-effort
+          FROM BookingRooms br
+          LEFT JOIN CircuitRooms r ON r.room_Id = br.room_id
+          GROUP BY br.booking_id
+        )
         SELECT
           b.booking_id,
           b.user_id,
           u.name AS user_name,
 
-          b.room_id,
-          r.room_Name,
-          r.price_per_person,
-          r.max_Persons,
-          r.circuit_Id,
+          ra.rooms_summary,
+          ra.total_rooms,
+          ra.total_guests,
+          ra.estimated_total,
 
           c.circuit_Name,
           c.city,
@@ -915,20 +968,15 @@ router.get('/', async (req, res) => {
           b.check_in_date,
           b.check_out_date,
           b.booking_time,
-
-          b.guest_count,
-          b.need_room_count,
           b.purpose,
           b.status,
           b.created_date,
-
-          CAST((b.guest_count * r.price_per_person) AS decimal(10,2)) AS estimated_total,
+          b.updated_date,
 
           p.amount AS payment_amount,
           p.payment_slip_path,
           p.payment_slip_uploaded_date,
 
-          -- ✅ NEW FLAG (THIS IS THE KEY)
           CASE
             WHEN p.payment_slip_path IS NOT NULL THEN 1
             ELSE 0
@@ -936,8 +984,8 @@ router.get('/', async (req, res) => {
 
         FROM Bookings b
         LEFT JOIN Users u ON u.user_id = b.user_id
-        LEFT JOIN CircuitRooms r ON r.room_Id = b.room_id
-        LEFT JOIN Circuits c ON c.circuit_Id = r.circuit_Id
+        LEFT JOIN RoomsAgg ra ON ra.booking_id = b.booking_id
+        LEFT JOIN Circuits c ON c.circuit_Id = ra.circuit_Id
 
         OUTER APPLY (
           SELECT TOP 1
@@ -960,9 +1008,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-
 // =====================================================
-// ✅ ADMIN: APPROVE booking
+// ✅ ADMIN: APPROVE booking (header)
 // PATCH /bookings/:id/approve  body: { admin_id }
 // =====================================================
 router.patch('/:id/approve', async (req, res) => {
@@ -989,7 +1036,8 @@ router.patch('/:id/approve', async (req, res) => {
           approved_date = GETDATE(),
           rejected_by = NULL,
           rejected_date = NULL,
-          rejection_reason = NULL
+          rejection_reason = NULL,
+          updated_date = GETDATE()
         WHERE booking_id = @booking_id AND status = 'Pending';
 
         SELECT @@ROWCOUNT AS affected;
@@ -1007,7 +1055,7 @@ router.patch('/:id/approve', async (req, res) => {
 });
 
 // =====================================================
-// ✅ ADMIN: REJECT booking
+// ✅ ADMIN: REJECT booking (header)
 // PATCH /bookings/:id/reject body: { admin_id, reason }
 // =====================================================
 router.patch('/:id/reject', async (req, res) => {
@@ -1039,7 +1087,8 @@ router.patch('/:id/reject', async (req, res) => {
           rejected_date = GETDATE(),
           rejection_reason = @reason,
           approved_by = NULL,
-          approved_date = NULL
+          approved_date = NULL,
+          updated_date = GETDATE()
         WHERE booking_id = @booking_id AND status = 'Pending';
 
         SELECT @@ROWCOUNT AS affected;

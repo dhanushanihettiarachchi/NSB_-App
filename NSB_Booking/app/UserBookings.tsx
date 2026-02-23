@@ -105,14 +105,92 @@ export default function UserBookings() {
     try {
       const res = await fetch(`${API_URL}/bookings/user/${userId}`);
       const json = await res.json().catch(() => ({}));
-      const list = Array.isArray(json.bookings) ? (json.bookings as BookingRow[]) : [];
-      setRows(list);
 
+      /**
+       * ✅ FIX: Backend returns:
+       *   { bookings: [ { ...header, items: [...] } ] }
+       * But UI expects rows as "flat" BookingRow[] (one row per room line).
+       * So we flatten bookings[].items[] into BookingRow[].
+       */
+      const bookings = Array.isArray(json.bookings) ? json.bookings : [];
+      const flat: BookingRow[] = [];
 
-      // ✅ payment status for all booking ids
-      const ids = list
-        .map((x) => x.booking_id)
-        .filter((n) => Number.isInteger(n) && n > 0);
+      for (const b of bookings) {
+        const header = b || {};
+        const items = Array.isArray(header.items) ? header.items : [];
+
+        // If no items exist, still show the booking card safely (optional)
+        if (items.length === 0) {
+          flat.push({
+            booking_id: Number(header.booking_id),
+            user_id: Number(header.user_id),
+            room_id: 0,
+            booking_date: header.booking_date,
+            check_in_date: header.check_in_date,
+            check_out_date: header.check_out_date,
+            booking_time: header.booking_time ?? null,
+            guest_count: 0,
+            purpose: header.purpose ?? null,
+            status: header.status,
+            created_date: header.created_date,
+            need_room_count: 0,
+            room_Name: undefined,
+            circuit_Name: header.circuit_Name,
+            city: header.city,
+            street: header.street,
+            price_per_person: 0,
+            rejected_by: header.rejected_by ?? null,
+            rejected_date: header.rejected_date ?? null,
+            rejection_reason: header.rejection_reason ?? null,
+            approved_by: header.approved_by ?? null,
+            approved_date: header.approved_date ?? null,
+          });
+        }
+
+        for (const it of items) {
+          flat.push({
+            booking_id: Number(header.booking_id),
+            user_id: Number(header.user_id),
+
+            room_id: Number(it.room_id),
+            need_room_count: Number(it.need_room_count),
+            guest_count: Number(it.guest_count),
+
+            room_Name: it.room_Name,
+            price_per_person: Number(it.price_per_person || 0),
+
+            booking_date: header.booking_date,
+            check_in_date: header.check_in_date,
+            check_out_date: header.check_out_date,
+            booking_time: header.booking_time ?? null,
+            purpose: header.purpose ?? null,
+            status: header.status,
+            created_date: header.created_date,
+
+            circuit_Name: header.circuit_Name,
+            city: header.city,
+            street: header.street,
+
+            rejected_by: header.rejected_by ?? null,
+            rejected_date: header.rejected_date ?? null,
+            rejection_reason: header.rejection_reason ?? null,
+
+            approved_by: header.approved_by ?? null,
+            approved_date: header.approved_date ?? null,
+          });
+        }
+      }
+
+      setRows(flat);
+
+      // ✅ payment status for all booking ids (unique IDs to avoid duplicates)
+      const ids = Array.from(
+        new Set(
+          flat
+            .map((x) => x.booking_id)
+            .filter((n) => Number.isInteger(n) && n > 0)
+        )
+      );
 
       if (ids.length) {
         const payRes = await fetch(
@@ -427,7 +505,7 @@ export default function UserBookings() {
 
                 <Text style={styles.sectionTitle}>Rooms</Text>
                 {g.rows.map((r) => (
-                  <View key={String(r.booking_id)} style={styles.roomPill}>
+                  <View key={String(r.booking_id) + "-" + String(r.room_id)} style={styles.roomPill}>
                     <Text style={styles.roomPillText}>
                       {(r.room_Name || `Room ${r.room_id}`) + ` × ${r.need_room_count}`}
                     </Text>
